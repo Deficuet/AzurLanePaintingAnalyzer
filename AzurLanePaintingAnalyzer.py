@@ -328,7 +328,7 @@ class WorkFrame(wx.Frame):
         self.NeedsNameBox.SetSelection(0)
         self.NeedsName = self.NeedsNameBox.GetStringSelection()
         self.NameLabel.SetLabel(self.NeedsName)
-        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}'.replace(r'{name}', self.NeedsName)
+        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.NeedsName)
         return 0
     def LoadPainting(self, event):
         paintingDia = wx.FileDialog(self, message = '导入立绘', defaultDir = PaintingConfigs.paintingPath, wildcard = self.WildCard)
@@ -362,7 +362,7 @@ class WorkFrame(wx.Frame):
     def ShowSelectedName(self, event):
         self.NeedsName = self.NeedsNameBox.GetStringSelection()
         self.NameLabel.SetLabel(self.NeedsName)
-        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}'.replace(r'{name}', self.NeedsName)
+        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.NeedsName)
         return 0
     def GroupPainting(self):
         RectNamePicDict = dict(zip(self.RectNameList, self.PaintingList))
