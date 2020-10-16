@@ -196,11 +196,11 @@ class WorkFrame(wx.Frame):
         self.ModeFunc = self.layers_Default
         FramePanel = wx.Panel(self)
         Sub_TaskFile = wx.StaticBox(FramePanel, label = '文件处理', pos = (16, 10), size = (384, 279))
-        self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 36))
-        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
-        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
-        self.ModeTitle = wx.StaticText(Sub_TaskFile, label = '模式:', pos = (112, 56))
-        self.ModeCombox = wx.ComboBox(Sub_TaskFile, value = 'layers', pos = (147, 53), size = (96, -1), choices = ModeList, style = wx.CB_READONLY)
+        self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 34))
+        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 26))
+        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 26))
+        self.ModeTitle = wx.StaticText(Sub_TaskFile, label = '模式:', pos = (112, 52))
+        self.ModeCombox = wx.ComboBox(Sub_TaskFile, value = 'layers', pos = (147, 49), size = (96, -1), choices = ModeList, style = wx.CB_READONLY)
         self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 90), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
 
         self.Sub_Painting = wx.StaticBox(FramePanel, label = '立绘导入', pos = (16, 297), size = (384, 231))
@@ -280,6 +280,29 @@ class WorkFrame(wx.Frame):
         self.RectNameList.append(self.BaseRect.name)
         if self.ModeFunc() == 1:
             return 1
+        self.ExPixelList = []
+        PointX = []
+        PointY = []
+        for point in self.PastePointsList:
+            PointX.append(point[0])
+            PointY.append(point[1])
+        self.ExPixelList.append(abs(min(PointX)) if min(PointX) < 0 else 0)
+        self.ExPixelList.append(abs(min(PointY)) if min(PointY) < 0 else 0)
+        RectNameRawPointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
+        PointX = []
+        PointY = []
+        for ChildName in self.ChildrenRectNameList:
+            ChildRect = self.RectNameDict.get(ChildName)
+            point = RectNameRawPointDict.get(ChildName)
+            PointX.append(ChildRect.Size[0] + point[0] - self.BaseRect.Size[0])
+            PointY.append(ChildRect.Size[1] + point[1] - self.BaseRect.Size[1])
+        self.ExPixelList.append(max(PointX) if max(PointX) > 0 else 0)
+        self.ExPixelList.append(max(PointY) if max(PointY) > 0 else 0)
+        for point in self.PastePointsList:
+            index = self.PastePointsList.index(point)
+            point[0] += self.ExPixelList[0]
+            point[1] += self.ExPixelList[1]
+            self.PastePointsList[index] = tuple(point)
         self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
         self.RectNamePointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
         self.RectNameRawSizeDict = dict(zip(self.RectNameList, self.RectRawSizeList))
@@ -315,39 +338,37 @@ class WorkFrame(wx.Frame):
             self.RectNameList.append(ChildrenRect.name)
             self.ChildrenRectNameList.append(ChildrenRect.name)
         RectPathIDDict = dict(zip(self.RectPathIDList, self.RectList))
-        RectNameDict = dict(zip(self.RectNameList, self.RectList))
+        self.RectNameDict = dict(zip(self.RectNameList, self.RectList))
         for RectObject in self.RectList:
             FatherRect = RectPathIDDict.get(RectObject.FatherPathID) if RectObject.FatherPathID != None else None
             RectObject.SetFatherRectObject(FatherRect)
             RectObject.CalculateRectSize()
-            if RectObject.name == 'layers':
-                LayersRect = RectObject
-            else:
+            if RectObject.name != 'layers':
                 self.RectRawSizeList.append(RectObject.RawSize)
                 self.RectStretchSizeList.append(RectObject.Size)
                 self.RectLocalScaleList.append(RectObject.LocalScale)
         self.ProcessInfo.AppendText('Calculating coordinates...\n')
         if LayersRect.name == 'layers':
             LayersOrigin = [
-                Decimal(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * self.BaseRect.Size[0] * LayersRect.Pivot[0]) + Decimal(LayersRect.AnchorMin[0] * self.BaseRect.Size[0]) + LayersRect.AnchoredPosition[0] - Decimal(LayersRect.Size[0] * LayersRect.Pivot[0]) + Decimal((LayersRect.Size[0] - Decimal(LayersRect.Size[0] * LayersRect.LocalScale[0])) / 2)),
-                Decimal(Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * self.BaseRect.Size[1] * LayersRect.Pivot[1]) + Decimal(LayersRect.AnchorMin[1] * self.BaseRect.Size[1]) + LayersRect.AnchoredPosition[1] - Decimal(LayersRect.Size[1] * LayersRect.Pivot[1]) + Decimal((LayersRect.Size[1] - Decimal(LayersRect.Size[1] * LayersRect.LocalScale[1])) / 2))
+                Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * self.BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * self.BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] + (LayersRect.Size[0] - LayersRect.Size[0] * LayersRect.LocalScale[0]) / 2),
+                Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * self.BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * self.BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] + (LayersRect.Size[1] - LayersRect.Size[1] * LayersRect.LocalScale[1]) / 2)
             ]
             for ChildrenRectName in self.ChildrenRectNameList:
-                ChildrenRect = RectNameDict.get(ChildrenRectName)
-                PastePoint = (
-                    round(Decimal(Decimal((ChildrenRect.AnchorMax[0] - ChildrenRect.AnchorMin[0]) * LayersRect.Size[0] * ChildrenRect.Pivot[0]) + Decimal(ChildrenRect.AnchorMin[0] * LayersRect.Size[0]) + ChildrenRect.AnchoredPosition[0] + LayersOrigin[0] - Decimal(ChildrenRect.Size[0] * ChildrenRect.Pivot[0]) + Decimal((ChildrenRect.Size[0] - Decimal(ChildrenRect.Size[0] * ChildrenRect.LocalScale[0])) / 2))) + 1,
-                    round(Decimal(self.BaseRect.Size[1] - (Decimal((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1]) + Decimal(ChildrenRect.AnchorMin[0] * LayersRect.Size[1]) + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] + Decimal(ChildrenRect.Size[1] * (1 - ChildrenRect.Pivot[1]))) + Decimal((ChildrenRect.Size[1] - Decimal(ChildrenRect.Size[1] * ChildrenRect.LocalScale[1])) / 2))) - 1
-                )
+                ChildrenRect = self.RectNameDict.get(ChildrenRectName)
+                PastePoint = [
+                    round(Decimal((ChildrenRect.AnchorMax[0] - ChildrenRect.AnchorMin[0]) * LayersRect.Size[0] * ChildrenRect.Pivot[0] + ChildrenRect.AnchorMin[0] * LayersRect.Size[0] + ChildrenRect.AnchoredPosition[0] + LayersOrigin[0] - ChildrenRect.Size[0] * ChildrenRect.Pivot[0] + (ChildrenRect.Size[0] - ChildrenRect.Size[0] * ChildrenRect.LocalScale[0]) / 2)) + 1,
+                    round(Decimal(self.BaseRect.Size[1] - ((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1] + ChildrenRect.AnchorMin[1] * LayersRect.Size[1] + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] + ChildrenRect.Size[1] * (1 - ChildrenRect.Pivot[1]) - (ChildrenRect.Size[1] - ChildrenRect.Size[1] * ChildrenRect.LocalScale[1]) / 2))) - 1
+                ]
                 self.PastePointsList.append(PastePoint)
             self.RectNameList.remove('layers')
         elif LayersRect.name == 'paint':
             LayersRect.name = f'{self.BaseRect.name}_p'
             self.RectNameList[self.RectNameList.index('paint')] = LayersRect.name
             self.ChildrenRectNameList.append(LayersRect.name)
-            PastePoint = (
-                round(Decimal(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * self.BaseRect.Size[0] * LayersRect.Pivot[0]) + Decimal(LayersRect.AnchorMin[0] * self.BaseRect.Size[0]) + LayersRect.AnchoredPosition[0] - Decimal(LayersRect.Size[0] * LayersRect.Pivot[0]) + Decimal((LayersRect.Size[0] - LayersRect.Size[0] * LayersRect.LocalScale[0]) / 2))) + 1,
-                round(Decimal(self.BaseRect.Size[1] - (Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * self.BaseRect.Size[1] * LayersRect.Pivot[1]) + Decimal(LayersRect.AnchorMin[1] * self.BaseRect.Size[1]) + LayersRect.AnchoredPosition[1] + Decimal(LayersRect.Size[1] * (1 - LayersRect.Pivot[1])) - Decimal((LayersRect.Size[1] - LayersRect.Size[1] * LayersRect.LocalScale[1]) / 2)))) - 1
-            )
+            PastePoint = [
+                round(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * self.BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * self.BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] + (LayersRect.Size[0] - LayersRect.Size[0] * LayersRect.LocalScale[0]) / 2)) + 1,
+                round(Decimal(self.BaseRect.Size[1] - ((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * self.BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * self.BaseRect.Size[1] + LayersRect.AnchoredPosition[1] + LayersRect.Size[1] * (1 - LayersRect.Pivot[1]) - (LayersRect.Size[1] - LayersRect.Size[1] * LayersRect.LocalScale[1]) / 2))) - 1
+            ]
             self.PastePointsList.append(PastePoint)
         return 0
     def ActivePainting(self):
@@ -372,6 +393,10 @@ class WorkFrame(wx.Frame):
             Painting = Painting.resize(self.RectNameStretchSizeDict.get(self.NeedsName), Image.ANTIALIAS)
             PaintingScale = self.RectNameScaleDict.get(self.NeedsName)
             Painting = Painting.resize((round(Decimal(Painting.size[0] * PaintingScale[0])), round(Decimal(Painting.size[1] * PaintingScale[1]))), Image.ANTIALIAS)
+            if TargetIndex == 0:
+                Expend = Image.new('RGBA', (Painting.size[0] + self.ExPixelList[0] + self.ExPixelList[2], Painting.size[1] + self.ExPixelList[1] + self.ExPixelList[3]), (0, 0, 0, 0))
+                Expend.paste(Painting, (self.ExPixelList[0], self.ExPixelList[1]))
+                Painting = Expend
             self.PaintingList[TargetIndex] = Painting
             self.CheckList[TargetIndex] = True
             PageImage = wx.StaticBitmap(self.PreviewBook, bitmap = self.ReleasePreview(Painting), pos = (-64, -64))
@@ -388,6 +413,7 @@ class WorkFrame(wx.Frame):
                 self.NeedsNameBox.SetSelection(TargetIndex)
                 self.ShowSelectedName(None)
             PaintingConfigs.Update(p2 = os.path.split(PaintingPath)[0])
+            self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
             return self.GroupPainting()
     def ShowSelectedName(self, event):
         self.NeedsName = self.NeedsNameBox.GetStringSelection()
@@ -424,7 +450,7 @@ class WorkFrame(wx.Frame):
             width = 864
             height = round(Decimal(imgObject.size[1] / imgObject.size[0] * 864))
         Example = imgObject.resize((width, height), Image.ANTIALIAS)
-        Blank.paste(Example, (round((864 - width) / 2), round((540 - height) / 2)), Example)
+        Blank.paste(Example, (round((864 - width) / 2), round((540 - height) / 2)))
         return wx.Bitmap(img = wx.Image(width = 864, height = 540, data = Blank.convert('RGB').tobytes(), alpha = Blank.tobytes()[3::4]))
     def RefreshPreview(self, event):
         buffer = wx.BufferedPaintDC(self.PreviewPanel)
