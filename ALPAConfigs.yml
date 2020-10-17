@@ -1,0 +1,8 @@
+painting:
+  importFilesPath: C:\Users
+  importPaintingPath: C:\Users
+  wildCard: '*{name}.png;*{name}_dec.png'
+paintingface:
+  importFilesPath: C:\Users
+  importFacePath: C:\Users
+  wildCard: 0.png;{name}_head.png
