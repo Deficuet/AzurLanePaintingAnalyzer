@@ -150,7 +150,7 @@ def ExtractAssetBundle(abPath, Reflect):
             break
     if dataPath == 'N/A':
         Reflect.AppendText("\nERROR: Can't read or not a Unity web file.\n")
-        return 1
+        return (1, 1)
     for root, dirs, files in os.walk(dataPath):
         for fileName in files:
             CABPath = os.path.join(root, fileName)
@@ -164,7 +164,7 @@ def ExtractAssetBundle(abPath, Reflect):
     if not os.path.exists(f'{CABPath}.txt'):
         Reflect.AppendText("\nERROR: Invalid Unity web file.\n")
         rmtree(os.path.split(CABPath)[0])
-        return 1
+        return (1, 1)
     with open(f'{CABPath}.txt', 'r') as abComponent:
         Reflect.AppendText('Creating cache files...\n')
         for dataLines in abComponent.readlines():
@@ -192,22 +192,18 @@ class WorkFrame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, parent = None, title = '操作面板', size = (1318, 634), style = wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX)
         self.Centre()
-        ModeList = ['layers', 'paint', 'layers_old']
-        self.ModeFunc = self.layers_Default
         FramePanel = wx.Panel(self)
-        Sub_TaskFile = wx.StaticBox(FramePanel, label = '文件处理', pos = (16, 10), size = (384, 279))
-        self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 34))
-        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 26))
-        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 26))
-        self.ModeTitle = wx.StaticText(Sub_TaskFile, label = '模式:', pos = (112, 52))
-        self.ModeCombox = wx.ComboBox(Sub_TaskFile, value = 'layers', pos = (147, 49), size = (96, -1), choices = ModeList, style = wx.CB_READONLY)
-        self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 90), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+        Sub_TaskFile = wx.StaticBox(FramePanel, label = '文件处理', pos = (16, 10), size = (384, 255))
+        self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
+        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
+        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
+        self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
 
-        self.Sub_Painting = wx.StaticBox(FramePanel, label = '立绘导入', pos = (16, 297), size = (384, 231))
+        self.Sub_Painting = wx.StaticBox(FramePanel, label = '立绘导入', pos = (16, 273), size = (384, 255))
         self.LoadPaintingButton = wx.Button(self.Sub_Painting, label = '添加立绘', pos = (16, 22))
         NameTitle = wx.StaticText(self.Sub_Painting, label = '目标名称:', pos = (112, 30))
         self.NameLabel = wx.StaticText(self.Sub_Painting, label = 'N/A', pos = (170, 30))
-        self.NeedsNameBox = wx.ListBox(self.Sub_Painting, pos = (17, 66), size = (349, 146), style = wx.LB_SINGLE | wx.LB_HSCROLL | wx.LB_OWNERDRAW)
+        self.NeedsNameBox = wx.ListBox(self.Sub_Painting, pos = (17, 66), size = (349, 170), style = wx.LB_SINGLE | wx.LB_HSCROLL | wx.LB_OWNERDRAW)
         self.Sub_Painting.Disable()
         
         self.PreviewBook = wx.Notebook(FramePanel, pos = (416, 10), size = (872, 570))
@@ -252,8 +248,9 @@ class WorkFrame(wx.Frame):
                 self.PreviewBook.DeletePage(1)
         self.PreviewImage = self.InitImgPre
         self.PreviewPanel.Refresh()
-        try: self.cacheFilesPath, BaseClassID = ExtractAssetBundle(abPath, self.ProcessInfo)
-        except: return 1
+        self.cacheFilesPath, BaseClassID = ExtractAssetBundle(abPath, self.ProcessInfo)
+        if self.cacheFilesPath == BaseClassID == 1:
+            return 1
         self.ProcessInfo.AppendText('Building RectTransform Object...\n')
         self.RectList = []
         self.RectPathIDList = []
@@ -272,48 +269,13 @@ class WorkFrame(wx.Frame):
                         if 'RectTransform' in ChildClass.readlines()[0]:
                             BaseRectPathID = ChildPathID
                             break
-        self.BaseRect = RectTransform(self.cacheFilesPath, BaseRectPathID)
-        self.BaseRect.Continue()
-        self.BaseRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
-        self.RectList.append(self.BaseRect)
-        self.RectPathIDList.append(self.BaseRect.PathID)
-        self.RectNameList.append(self.BaseRect.name)
-        if self.ModeFunc() == 1:
-            return 1
-        self.ExPixelList = []
-        PointX = []
-        PointY = []
-        for point in self.PastePointsList:
-            PointX.append(point[0])
-            PointY.append(point[1])
-        self.ExPixelList.append(abs(min(PointX)) if min(PointX) < 0 else 0)
-        self.ExPixelList.append(abs(min(PointY)) if min(PointY) < 0 else 0)
-        RectNameRawPointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
-        PointX = []
-        PointY = []
-        for ChildName in self.ChildrenRectNameList:
-            ChildRect = self.RectNameDict.get(ChildName)
-            point = RectNameRawPointDict.get(ChildName)
-            PointX.append(ChildRect.Size[0] + point[0] - self.BaseRect.Size[0])
-            PointY.append(ChildRect.Size[1] + point[1] - self.BaseRect.Size[1])
-        self.ExPixelList.append(max(PointX) if max(PointX) > 0 else 0)
-        self.ExPixelList.append(max(PointY) if max(PointY) > 0 else 0)
-        for point in self.PastePointsList:
-            index = self.PastePointsList.index(point)
-            point[0] += self.ExPixelList[0]
-            point[1] += self.ExPixelList[1]
-            self.PastePointsList[index] = tuple(point)
-        self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
-        self.RectNamePointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
-        self.RectNameRawSizeDict = dict(zip(self.RectNameList, self.RectRawSizeList))
-        self.RectNameStretchSizeDict = dict(zip(self.RectNameList, self.RectStretchSizeList))
-        self.RectNameScaleDict = dict(zip(self.RectNameList, self.RectLocalScaleList))
-        self.PaintingList = self.RectNameList[:]
-        self.CheckList = [False for l in range(0, len(self.RectNameList))]
-        self.ProcessInfo.AppendText('\nDone! Please load painting pictures.\n')
-        return self.ActivePainting()
-    def layers_Default(self):
-        for LayersPathID in self.BaseRect.ChildrenPathID:
+        BaseRect = RectTransform(self.cacheFilesPath, BaseRectPathID)
+        BaseRect.Continue()
+        BaseRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
+        self.RectList.append(BaseRect)
+        self.RectPathIDList.append(BaseRect.PathID)
+        self.RectNameList.append(BaseRect.name)
+        for LayersPathID in BaseRect.ChildrenPathID:
             LayersRect = RectTransform(self.cacheFilesPath, LayersPathID)
             if LayersRect.name == 'layers':
                 LayersRect.Continue()
@@ -350,27 +312,59 @@ class WorkFrame(wx.Frame):
         self.ProcessInfo.AppendText('Calculating coordinates...\n')
         if LayersRect.name == 'layers':
             LayersOrigin = [
-                Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * self.BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * self.BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] + (LayersRect.Size[0] - LayersRect.Size[0] * LayersRect.LocalScale[0]) / 2),
-                Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * self.BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * self.BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] + (LayersRect.Size[1] - LayersRect.Size[1] * LayersRect.LocalScale[1]) / 2)
+                Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] * LayersRect.LocalScale[0]),
+                Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] * LayersRect.LocalScale[1])
             ]
             for ChildrenRectName in self.ChildrenRectNameList:
                 ChildrenRect = self.RectNameDict.get(ChildrenRectName)
                 PastePoint = [
-                    round(Decimal((ChildrenRect.AnchorMax[0] - ChildrenRect.AnchorMin[0]) * LayersRect.Size[0] * ChildrenRect.Pivot[0] + ChildrenRect.AnchorMin[0] * LayersRect.Size[0] + ChildrenRect.AnchoredPosition[0] + LayersOrigin[0] - ChildrenRect.Size[0] * ChildrenRect.Pivot[0] + (ChildrenRect.Size[0] - ChildrenRect.Size[0] * ChildrenRect.LocalScale[0]) / 2)) + 1,
-                    round(Decimal(self.BaseRect.Size[1] - ((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1] + ChildrenRect.AnchorMin[1] * LayersRect.Size[1] + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] + ChildrenRect.Size[1] * (1 - ChildrenRect.Pivot[1]) - (ChildrenRect.Size[1] - ChildrenRect.Size[1] * ChildrenRect.LocalScale[1]) / 2))) - 1
+                    round(Decimal((ChildrenRect.AnchorMax[0] - ChildrenRect.AnchorMin[0]) * LayersRect.Size[0] * ChildrenRect.Pivot[0] + ChildrenRect.AnchorMin[0] * LayersRect.Size[0] + ChildrenRect.AnchoredPosition[0] + LayersOrigin[0] - ChildrenRect.Size[0] * ChildrenRect.Pivot[0] * ChildrenRect.LocalScale[0])) + 1,
+                    round(Decimal(BaseRect.Size[1] - ((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1] + ChildrenRect.AnchorMin[1] * LayersRect.Size[1] + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] + ChildrenRect.Size[1] * (1 - ChildrenRect.Pivot[1]) * ChildrenRect.LocalScale[1]))) - 1
                 ]
                 self.PastePointsList.append(PastePoint)
             self.RectNameList.remove('layers')
         elif LayersRect.name == 'paint':
-            LayersRect.name = f'{self.BaseRect.name}_p'
+            LayersRect.name = f'{BaseRect.name}_p'
             self.RectNameList[self.RectNameList.index('paint')] = LayersRect.name
+            self.RectNameDict = dict(zip(self.RectNameList, self.RectList))
             self.ChildrenRectNameList.append(LayersRect.name)
             PastePoint = [
-                round(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * self.BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * self.BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] + (LayersRect.Size[0] - LayersRect.Size[0] * LayersRect.LocalScale[0]) / 2)) + 1,
-                round(Decimal(self.BaseRect.Size[1] - ((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * self.BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * self.BaseRect.Size[1] + LayersRect.AnchoredPosition[1] + LayersRect.Size[1] * (1 - LayersRect.Pivot[1]) - (LayersRect.Size[1] - LayersRect.Size[1] * LayersRect.LocalScale[1]) / 2))) - 1
+                round(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] * LayersRect.LocalScale[0])) + 1,
+                round(Decimal(BaseRect.Size[1] - ((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] + LayersRect.Size[1] * (1 - LayersRect.Pivot[1]) * LayersRect.LocalScale[1]))) - 1
             ]
             self.PastePointsList.append(PastePoint)
-        return 0
+        self.ExPixelList = []
+        PointX = []
+        PointY = []
+        for point in self.PastePointsList:
+            PointX.append(point[0])
+            PointY.append(point[1])
+        self.ExPixelList.append(abs(min(PointX)) if min(PointX) < 0 else 0)
+        self.ExPixelList.append(abs(min(PointY)) if min(PointY) < 0 else 0)
+        RectNameRawPointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
+        PointX = []
+        PointY = []
+        for ChildName in self.ChildrenRectNameList:
+            ChildRect = self.RectNameDict.get(ChildName)
+            point = RectNameRawPointDict.get(ChildName)
+            PointX.append(round(ChildRect.Size[0] * ChildRect.LocalScale[0] + point[0] - BaseRect.Size[0]))
+            PointY.append(round(ChildRect.Size[1] * ChildRect.LocalScale[1] + point[1] - BaseRect.Size[1]))
+        self.ExPixelList.append(max(PointX) if max(PointX) > 0 else 0)
+        self.ExPixelList.append(max(PointY) if max(PointY) > 0 else 0)
+        for point in self.PastePointsList:
+            index = self.PastePointsList.index(point)
+            point[0] += self.ExPixelList[0]
+            point[1] += self.ExPixelList[1]
+            self.PastePointsList[index] = tuple(point)
+        self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
+        self.RectNamePointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
+        self.RectNameRawSizeDict = dict(zip(self.RectNameList, self.RectRawSizeList))
+        self.RectNameStretchSizeDict = dict(zip(self.RectNameList, self.RectStretchSizeList))
+        self.RectNameScaleDict = dict(zip(self.RectNameList, self.RectLocalScaleList))
+        self.PaintingList = self.RectNameList[:]
+        self.CheckList = [False for l in range(0, len(self.RectNameList))]
+        self.ProcessInfo.AppendText('\nDone! Please load painting pictures.\n')
+        return self.ActivePainting()
     def ActivePainting(self):
         self.Sub_Painting.Enable()
         self.NeedsNameBox.SetItems(self.RectNameList)
