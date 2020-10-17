@@ -1,8 +1,0 @@
-painting:
-  importFilesPath: D:\painting_old
-  importPaintingPath: D:\拆包资源\AzurLane\舰船相关\立绘\cache
-  wildCard: '*{name}.png;*{name}_dec.png'
-paintingface:
-  importFilesPath: D:\AL_cache
-  importFacePath: D:\拆包资源\AzurLane\舰船相关\立绘\PaintingFace
-  wildCard: 0.png;{name}_head.png
