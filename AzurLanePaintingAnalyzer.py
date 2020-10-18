@@ -120,8 +120,6 @@ class RectTransform:
     def SetFatherRectObject(self, RectObject):
         self.__FatherRect = RectObject
         return 0
-    def GetFatherRectObject(self):
-        return self.__FatherRect
     def GeneralDataProcess(self, dataLine: str):
         dataList = []
         for data in dataLine.split('(')[1].split(')')[0].split(' '):
@@ -136,11 +134,12 @@ class RectTransform:
                 Decimal(self.SizeDelta[1] + Decimal((self.AnchorMax[1] - self.AnchorMin[1]) * self.__FatherRect.Size[1]))
             ]
         return 0
-def ExtractAssetBundle(abPath, Reflect):
+def ExtractAssetBundle(abPath, Reflect, Mode):
     Reflect.Clear()
     abBasename = os.path.basename(abPath)
     dataPath = 'N/A'
-    cacheFilesPath = f'./cache/{abBasename}'
+    cacheFilesPath = f'./cache/{Mode}/{abBasename}'
+    if not os.path.exists(f'./cache/{Mode}'): os.mkdir(f'./cache/{Mode}')
     os.mkdir(cacheFilesPath)
     WebExtractInfo = os.popen(f'WebExtract {abPath}').readlines()
     Reflect.AppendText('Unpacking AssetBundle...\n')
@@ -188,25 +187,23 @@ def ExtractAssetBundle(abPath, Reflect):
             cacheFile.write(''.join(dataLineList))
     rmtree(os.path.split(CABPath)[0])
     return cacheFilesPath, BaseClassID
-class WorkFrame(wx.Frame):
-    def __init__(self):
-        wx.Frame.__init__(self, parent = None, title = '操作面板', size = (1318, 634), style = wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX)
-        self.Centre()
-        FramePanel = wx.Panel(self)
-        Sub_TaskFile = wx.StaticBox(FramePanel, label = '文件处理', pos = (16, 10), size = (384, 255))
+class PaintingFrame(wx.Panel):
+    def __init__(self, Parent):
+        super().__init__(Parent)
+        Sub_TaskFile = wx.StaticBox(self, label = '文件处理', pos = (16, 10), size = (384, 255))
         self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
         TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
         self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
         self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
 
-        self.Sub_Painting = wx.StaticBox(FramePanel, label = '立绘导入', pos = (16, 273), size = (384, 255))
+        self.Sub_Painting = wx.StaticBox(self, label = '立绘导入', pos = (16, 273), size = (384, 255))
         self.LoadPaintingButton = wx.Button(self.Sub_Painting, label = '添加立绘', pos = (16, 22))
         NameTitle = wx.StaticText(self.Sub_Painting, label = '目标名称:', pos = (112, 30))
         self.NameLabel = wx.StaticText(self.Sub_Painting, label = 'N/A', pos = (170, 30))
         self.NeedsNameBox = wx.ListBox(self.Sub_Painting, pos = (17, 66), size = (349, 170), style = wx.LB_SINGLE | wx.LB_HSCROLL | wx.LB_OWNERDRAW)
         self.Sub_Painting.Disable()
         
-        self.PreviewBook = wx.Notebook(FramePanel, pos = (416, 10), size = (872, 570))
+        self.PreviewBook = wx.Notebook(self, pos = (416, 10), size = (872, 570))
         self.PreviewPanel = wx.Panel(self.PreviewBook)
         self.PreviewPanel.SetBackgroundColour('#FFFFFF')
         self.InitImg = Image.new('RGBA', (864, 540), (255, 255, 255, 255))
@@ -218,9 +215,9 @@ class WorkFrame(wx.Frame):
         self.PreviewImage = self.InitImgPre
         self.PreviewBook.AddPage(self.PreviewPanel, 'Preview')
         self.PreviewPanel.Refresh()
-        self.SaveButton = wx.Button(FramePanel, label = '保存', pos = (15, 544), size = (186, 36))
+        self.SaveButton = wx.Button(self, label = '保存', pos = (15, 544), size = (186, 36))
         self.SaveButton.Disable()
-        self.OpenFolderButton = wx.Button(FramePanel, label = '打开文件夹', pos = (215, 544), size = (186, 36))
+        self.OpenFolderButton = wx.Button(self, label = '打开文件夹', pos = (215, 544), size = (186, 36))
 
         self.PreviewPanel.Bind(wx.EVT_ERASE_BACKGROUND, self.DoNothing)
         self.PreviewPanel.Bind(wx.EVT_PAINT, self.RefreshPreview)
@@ -228,8 +225,7 @@ class WorkFrame(wx.Frame):
         self.LoadPaintingButton.Bind(wx.EVT_BUTTON, self.LoadPainting)
         self.NeedsNameBox.Bind(wx.EVT_LISTBOX, self.ShowSelectedName)
         self.SaveButton.Bind(wx.EVT_BUTTON, self.Saveto)
-        self.OpenFolderButton.Bind(wx.EVT_BUTTON, self.OpenFolder)
-        self.Bind(wx.EVT_CLOSE, self.OnClose)
+        self.OpenFolderButton.Bind(wx.EVT_BUTTON, self.OpenFolder)       
     def LoadFile(self, event):
         fileDia = wx.FileDialog(self, message = '导入文件', defaultDir = PaintingConfigs.filesPath)
         if fileDia.ShowModal() == wx.ID_OK:
@@ -238,6 +234,9 @@ class WorkFrame(wx.Frame):
             PaintingConfigs.Update(p1 = os.path.split(filePath)[0])
             return self.Painting(filePath)
     def Painting(self, abPath):
+        if os.path.exists('./cache/painting'):
+            for cacheFolder in os.listdir('./cache/painting'):
+                rmtree(f'./cache/painting/{cacheFolder}')
         self.NameLabel.SetLabel('N/A')
         self.NeedsNameBox.Clear()
         self.Sub_Painting.Disable()
@@ -248,7 +247,7 @@ class WorkFrame(wx.Frame):
                 self.PreviewBook.DeletePage(1)
         self.PreviewImage = self.InitImgPre
         self.PreviewPanel.Refresh()
-        self.cacheFilesPath, BaseClassID = ExtractAssetBundle(abPath, self.ProcessInfo)
+        self.cacheFilesPath, BaseClassID = ExtractAssetBundle(abPath, self.ProcessInfo, 'painting')
         if self.cacheFilesPath == BaseClassID == 1:
             return 1
         self.ProcessInfo.AppendText('Building RectTransform Object...\n')
@@ -319,7 +318,7 @@ class WorkFrame(wx.Frame):
                 ChildrenRect = self.RectNameDict.get(ChildrenRectName)
                 PastePoint = [
                     round(Decimal((ChildrenRect.AnchorMax[0] - ChildrenRect.AnchorMin[0]) * LayersRect.Size[0] * ChildrenRect.Pivot[0] + ChildrenRect.AnchorMin[0] * LayersRect.Size[0] + ChildrenRect.AnchoredPosition[0] + LayersOrigin[0] - ChildrenRect.Size[0] * ChildrenRect.Pivot[0] * ChildrenRect.LocalScale[0])) + 1,
-                    round(Decimal(BaseRect.Size[1] - ((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1] + ChildrenRect.AnchorMin[1] * LayersRect.Size[1] + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] + ChildrenRect.Size[1] * (1 - ChildrenRect.Pivot[1]) * ChildrenRect.LocalScale[1]))) - 1
+                    round(Decimal((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1] + ChildrenRect.AnchorMin[1] * LayersRect.Size[1] + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] - ChildrenRect.Size[1] * ChildrenRect.Pivot[1] * ChildrenRect.LocalScale[1])) + 1
                 ]
                 self.PastePointsList.append(PastePoint)
             self.RectNameList.remove('layers')
@@ -330,17 +329,17 @@ class WorkFrame(wx.Frame):
             self.ChildrenRectNameList.append(LayersRect.name)
             PastePoint = [
                 round(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] * LayersRect.LocalScale[0])) + 1,
-                round(Decimal(BaseRect.Size[1] - ((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] + LayersRect.Size[1] * (1 - LayersRect.Pivot[1]) * LayersRect.LocalScale[1]))) - 1
+                round(Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] * LayersRect.LocalScale[1])) + 1
             ]
             self.PastePointsList.append(PastePoint)
-        self.ExPixelList = []
+        self.ExPixelList = [0, 0, 0, 0]
         PointX = []
         PointY = []
         for point in self.PastePointsList:
             PointX.append(point[0])
             PointY.append(point[1])
-        self.ExPixelList.append(abs(min(PointX)) if min(PointX) < 0 else 0)
-        self.ExPixelList.append(abs(min(PointY)) if min(PointY) < 0 else 0)
+        self.ExPixelList[0] = abs(min(PointX)) if min(PointX) < 0 else 0
+        self.ExPixelList[3] = abs(min(PointY)) if min(PointY) < 0 else 0
         RectNameRawPointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
         PointX = []
         PointY = []
@@ -349,12 +348,12 @@ class WorkFrame(wx.Frame):
             point = RectNameRawPointDict.get(ChildName)
             PointX.append(round(ChildRect.Size[0] * ChildRect.LocalScale[0] + point[0] - BaseRect.Size[0]))
             PointY.append(round(ChildRect.Size[1] * ChildRect.LocalScale[1] + point[1] - BaseRect.Size[1]))
-        self.ExPixelList.append(max(PointX) if max(PointX) > 0 else 0)
-        self.ExPixelList.append(max(PointY) if max(PointY) > 0 else 0)
+        self.ExPixelList[2] = max(PointX) if max(PointX) > 0 else 0
+        self.ExPixelList[1] = max(PointY) if max(PointY) > 0 else 0
         for point in self.PastePointsList:
             index = self.PastePointsList.index(point)
             point[0] += self.ExPixelList[0]
-            point[1] += self.ExPixelList[1]
+            point[1] += self.ExPixelList[3]
             self.PastePointsList[index] = tuple(point)
         self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
         self.RectNamePointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
@@ -380,11 +379,15 @@ class WorkFrame(wx.Frame):
             PaintingPath = paintingDia.GetPath()
             Painting = Image.open(PaintingPath)
             TargetIndex = self.RectNameList.index(self.NeedsName)
-            Expend = Image.new('RGBA', self.RectNameRawSizeDict.get(self.NeedsName), (0, 0, 0, 0))
+            RawSizeData = self.RectNameRawSizeDict.get(self.NeedsName)
+            RawSize = [RawSizeData[0] if RawSizeData[0] >= Painting.size[0] else Painting.size[0], RawSizeData[1] if RawSizeData[1] >= Painting.size[1] else Painting.size[1]]
+            Expend = Image.new('RGBA', tuple(RawSize), (0, 0, 0, 0))
             Painting = Painting.transpose(Image.FLIP_TOP_BOTTOM)
             Expend.paste(Painting, (0, 0))
             Painting = Expend.transpose(Image.FLIP_TOP_BOTTOM)
-            Painting = Painting.resize(self.RectNameStretchSizeDict.get(self.NeedsName), Image.ANTIALIAS)
+            SizeData = self.RectNameStretchSizeDict.get(self.NeedsName)
+            StretchSize = [SizeData[0] if SizeData[0] >= Painting.size[0] else Painting.size[0], SizeData[1] if SizeData[1] >= Painting.size[1] else Painting.size[1]]
+            Painting = Painting.resize(tuple(StretchSize), Image.ANTIALIAS)
             PaintingScale = self.RectNameScaleDict.get(self.NeedsName)
             Painting = Painting.resize((round(Decimal(Painting.size[0] * PaintingScale[0])), round(Decimal(Painting.size[1] * PaintingScale[1]))), Image.ANTIALIAS)
             if TargetIndex == 0:
@@ -426,9 +429,12 @@ class WorkFrame(wx.Frame):
                     self.GroupedPainting = Image.new('RGBA', UsedPainting.size, (0, 0, 0, 0))
                     self.GroupedPainting.paste(UsedPainting, (0, 0))
                 else:
+                    self.GroupedPainting = self.GroupedPainting.transpose(Image.FLIP_TOP_BOTTOM)
+                    UsedPainting = UsedPainting.transpose(Image.FLIP_TOP_BOTTOM)
                     Blank = Image.new('RGBA', self.GroupedPainting.size, (0, 0, 0, 0))
                     Blank.paste(UsedPainting, self.RectNamePointDict.get(RectName))
                     self.GroupedPainting = Image.alpha_composite(self.GroupedPainting, Blank)
+                    self.GroupedPainting = self.GroupedPainting.transpose(Image.FLIP_TOP_BOTTOM)
             else:
                 break
         if len(set(self.CheckList)) == 1 and set(self.CheckList) == {True}:
@@ -467,7 +473,17 @@ class WorkFrame(wx.Frame):
             os.popen(f'explorer {PaintingConfigs.paintingPath}')
         return 0
     def DoNothing(self, event):
-        return 0
+        return 0 
+class WorkFrame(wx.Frame):
+    def __init__(self):
+        wx.Frame.__init__(self, parent = None, title = '操作面板', size = (1359, 690), style = wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX)
+        self.Centre()
+        FramePanel = wx.Panel(self)
+        PanelBook = wx.Notebook(FramePanel, pos = (17, 10), size = (1311, 625))
+        PanelBook.SetBackgroundColour('#F0F0F0')
+        PaintingPanel = PaintingFrame(PanelBook)
+        PanelBook.AddPage(PaintingPanel, '立绘合并')
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
     def OnClose(self, event):
         self.Destroy()
         for cacheFolder in os.listdir('./cache'):
