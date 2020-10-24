@@ -1,8 +1,9 @@
 painting:
   importFilesPath: C:\Users
   importPaintingPath: C:\Users
-  wildCard: '*{name}.png;*{name}_dec.png'
+  wildCard: '*{name}.png;*{name}_dec.png;*{name}_group.png;*{name}_exp.png'
 paintingface:
+  ApplyCorrection: true
   importFilesPath: C:\Users
   importFace2DPath: C:\Users
   importFaceFilePath: C:\Users
