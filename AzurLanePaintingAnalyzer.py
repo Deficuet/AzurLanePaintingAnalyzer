@@ -1,50 +1,52 @@
 # -*- coding: utf-8 -*-
 from PIL import Image, ImageFont, ImageDraw
+from shutil import rmtree, copy
 from decimal import Decimal
-from shutil import rmtree
 import yaml
 import os
 import wx
 
-class ConfigSet:
-    def __init__(self, Type):
-        ConfigDict = configFile.get(Type)
-        self.filesPath = ConfigDict.get('importFilesPath')
-        self.wildCard = ConfigDict.get('wildCard')
-        self.tag = Type
-        if Type == 'painting':
-            self.paintingPath = ConfigDict.get('importPaintingPath')
-        elif Type == 'paintingface':
-            self.facePath = ConfigDict.get('importFacePath')
-    def Update(self, p1 = None, p2 = None, pf1 = None, pf2 = None):
-        if self.tag == 'painting':
-            self.filesPath = self.filesPath if p1 == None else p1
-            self.paintingPath = self.paintingPath if p2 == None else p2
-        elif self.tag == 'paintingface':
-            self.filesPath = self.filesPath if pf1 == None else pf1
-            self.facePath = self.facePath if pf2 == None else pf2
+class PaintingSetting:
+    def __init__(self, setting):
+        self.filesPath = setting.get('importFilesPath')
+        self.paintingPath = setting.get('importPaintingPath')
+        self.wildCard = setting.get('wildCard')
+    def Update(self, p1 = None, p2 = None):
+        self.filesPath = self.filesPath if p1 == None else p1
+        self.paintingPath = self.paintingPath if p2 == None else p2
         return 0
-    def UpdateFile(self):
-        if self.tag == 'painting':
-            updateDict = {
-                'painting': {
-                    'importFilesPath': self.filesPath,
-                    'importPaintingPath': self.paintingPath,
-                    'wildCard': self.wildCard
-                }
+    def FileForm(self):
+        updateDict = {
+            'painting': {
+                'importFilesPath': self.filesPath,
+                'importPaintingPath': self.paintingPath,
+                'wildCard': self.wildCard
             }
-        elif self.tag == 'paintingface':
-            updateDict = {
-                'paintingface': {
-                    'importFilesPath': self.filesPath,
-                    'importFacePath': self.facePath,
-                    'wildCard': self.wildCard
-                }
-            }
-        configFile.update(updateDict)
-        with open('ALPAConfigs.yml', 'w', encoding = 'utf-8') as yamlFile:
-            yaml.safe_dump(configFile, yamlFile, allow_unicode = True, sort_keys = False)
+        }
+        return updateDict
+class PaintingfaceSetting:
+    def __init__(self, setting):
+        self.filesPath = setting.get('importFilesPath')
+        self.face2DPath = setting.get('importFace2DPath')
+        self.faceFilePath = setting.get('importFaceFilePath')
+        self.wildCard2D = setting.get('wildCard_2D')
+        self.wildCardFile = setting.get('wildCard_File')
+    def Update(self, pf1 = None, pf2 = None, pf3 = None):
+        self.filesPath = self.filesPath if pf1 == None else pf1
+        self.face2DPath = self.face2DPath if pf2 == None else pf2
+        self.faceFilePath = self.faceFilePath if pf3 == None else pf3
         return 0
+    def FileForm(self):
+        updateDict = {
+            'paintingface': {
+                'importFilesPath': self.filesPath,
+                'importFace2DPath': self.face2DPath,
+                'importFaceFilePath': self.faceFilePath,
+                'wildCard_2D': self.wildCard2D,
+                'wildCard_File': self.wildCardFile
+            }
+        }
+        return updateDict
 class RectTransform:
     def __init__(self, filePath, targetID):
         self.path = f'{filePath}/{targetID}.txt'
@@ -130,18 +132,15 @@ class RectTransform:
             self.Size = self.SizeDelta
         else:
             self.Size = [
-                Decimal(self.SizeDelta[0] + Decimal((self.AnchorMax[0] - self.AnchorMin[0]) * self.__FatherRect.Size[0])),
-                Decimal(self.SizeDelta[1] + Decimal((self.AnchorMax[1] - self.AnchorMin[1]) * self.__FatherRect.Size[1]))
+                Decimal(self.SizeDelta[0] + (self.AnchorMax[0] - self.AnchorMin[0]) * self.__FatherRect.Size[0]),
+                Decimal(self.SizeDelta[1] + (self.AnchorMax[1] - self.AnchorMin[1]) * self.__FatherRect.Size[1])
             ]
         return 0
-def ExtractAssetBundle(abPath, Reflect, Mode):
+def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode):
     Reflect.Clear()
-    abBasename = os.path.basename(abPath)
+    abBasename = os.path.basename(ABPath)
     dataPath = 'N/A'
-    cacheFilesPath = f'./cache/{Mode}/{abBasename}'
-    if not os.path.exists(f'./cache/{Mode}'): os.mkdir(f'./cache/{Mode}')
-    os.mkdir(cacheFilesPath)
-    WebExtractInfo = os.popen(f'WebExtract {abPath}').readlines()
+    WebExtractInfo = os.popen(f'WebExtract {ABPath}').readlines()
     Reflect.AppendText('Unpacking AssetBundle...\n')
     for i in WebExtractInfo:
         if 'creating folder' in i:
@@ -149,33 +148,42 @@ def ExtractAssetBundle(abPath, Reflect, Mode):
             break
     if dataPath == 'N/A':
         Reflect.AppendText("\nERROR: Can't read or not a Unity web file.\n")
-        return (1, 1)
+        return -1
+    FileList = []
+    SuffixList = []
     for root, dirs, files in os.walk(dataPath):
         for fileName in files:
-            CABPath = os.path.join(root, fileName)
+            CABFile = os.path.join(root, fileName)
+            FileList.append(CABFile)
+            suffix = os.path.splitext(CABFile)[1]
+            SuffixList.append(suffix)
+            if suffix == '':
+                CABPath = CABFile
+            elif suffix == '.resS':
+                resSPath = CABFile
+    if ((Mode == 'TextAsset' and len(set(SuffixList)) != 1) or
+        (Mode == 'Texture2D' and not '.resS' in set(SuffixList))):
+        Reflect.AppendText("\nERROR: Invalid Unity web file.\n")
+        rmtree(os.path.split(CABFile)[0])
+        return -1
     Reflect.AppendText('Reading unpacked CAB File...\n')
     a = os.popen(f'binary2text {CABPath}').read()
-    Reflect.AppendText('Spliting AssetBundle data...\n')
     LastPathID = '0'
     dataLineList = []
     BaseClassID = '0'
-    BaseRectPathID = '0'
-    if not os.path.exists(f'{CABPath}.txt'):
-        Reflect.AppendText("\nERROR: Invalid Unity web file.\n")
-        rmtree(os.path.split(CABPath)[0])
-        return (1, 1)
+    Reflect.AppendText('Spliting AssetBundle data...\n')
     with open(f'{CABPath}.txt', 'r') as abComponent:
         Reflect.AppendText('Creating cache files...\n')
         for dataLines in abComponent.readlines():
             if dataLines == '\n':
                 continue
-            if dataLines[:3] == 'ID:':
+            elif dataLines[:3] == 'ID:':
                 PathID = dataLines.split(' ')[1]
                 if LastPathID == '0':
                     LastPathID = PathID
                     dataLineList.append(dataLines.split(' ')[-1])
                 if PathID != LastPathID:
-                    with open(f'{cacheFilesPath}/{LastPathID}.txt', 'w') as cacheFile:
+                    with open(f'{cacheSavePath}/{LastPathID}.txt', 'w') as cacheFile:
                         cacheFile.write(''.join(dataLineList))
                     dataLineList = [dataLines.split(' ')[-1]]
                     LastPathID = PathID
@@ -183,10 +191,28 @@ def ExtractAssetBundle(abPath, Reflect, Mode):
                 dataLineList.append(dataLines)
                 if f'm_Name "{abBasename}" (string)' in dataLines:
                     BaseClassID = PathID
-        with open(f'{cacheFilesPath}/{PathID}.txt', 'w') as cacheFile:
+        with open(f'{cacheSavePath}/{PathID}.txt', 'w') as cacheFile:
             cacheFile.write(''.join(dataLineList))
+    if Mode == 'Texture2D':
+        returnValue = copy(resSPath, cacheSavePath)
+    elif Mode == 'TextAsset':
+        if BaseClassID == '0':
+            Reflect.AppendText('\nERROR: Not original file name.\n')
+            returnValue = -1
+        else:
+            returnValue = BaseClassID
     rmtree(os.path.split(CABPath)[0])
-    return cacheFilesPath, BaseClassID
+    return returnValue
+def ReleasePreview(imgObject):
+        Blank = Image.new('RGBA', (864, 540), (0, 0, 0, 0))
+        width = round(Decimal(imgObject.size[0] / imgObject.size[1] * 540))
+        height = 540
+        if width > 864:
+            width = 864
+            height = round(Decimal(imgObject.size[1] / imgObject.size[0] * 864))
+        Example = imgObject.resize((width, height), Image.ANTIALIAS)
+        Blank.paste(Example, (round((864 - width) / 2), round((540 - height) / 2)))
+        return wx.Bitmap(img = wx.Image(width = 864, height = 540, data = Blank.convert('RGB').tobytes(), alpha = Blank.tobytes()[3::4]))
 class PaintingFrame(wx.Panel):
     def __init__(self, Parent):
         super().__init__(Parent)
@@ -206,13 +232,7 @@ class PaintingFrame(wx.Panel):
         self.PreviewBook = wx.Notebook(self, pos = (416, 10), size = (872, 570))
         self.PreviewPanel = wx.Panel(self.PreviewBook)
         self.PreviewPanel.SetBackgroundColour('#FFFFFF')
-        self.InitImg = Image.new('RGBA', (864, 540), (255, 255, 255, 255))
-        TextFont = ImageFont.truetype('arialbd', 54)
-        DrawImage = ImageDraw.Draw(self.InitImg)
-        DrawImage.text((318, 193), ' Preview\n     not\navailable', fill = (116, 116, 116), font = TextFont)
-        InitImgData = self.InitImg.convert('RGB').tobytes()
-        self.InitImgPre = wx.Bitmap(img = wx.Image(width = 864, height = 540, data = InitImgData))
-        self.PreviewImage = self.InitImgPre
+        self.PreviewImage = InitImgPre
         self.PreviewBook.AddPage(self.PreviewPanel, 'Preview')
         self.PreviewPanel.Refresh()
         self.SaveButton = wx.Button(self, label = '保存', pos = (15, 544), size = (186, 36))
@@ -233,10 +253,7 @@ class PaintingFrame(wx.Panel):
             filePath = fileDia.GetPath()
             PaintingConfigs.Update(p1 = os.path.split(filePath)[0])
             return self.Painting(filePath)
-    def Painting(self, abPath):
-        if os.path.exists('./cache/painting'):
-            for cacheFolder in os.listdir('./cache/painting'):
-                rmtree(f'./cache/painting/{cacheFolder}')
+    def Painting(self, ABPath):
         self.NameLabel.SetLabel('N/A')
         self.NeedsNameBox.Clear()
         self.Sub_Painting.Disable()
@@ -245,11 +262,18 @@ class PaintingFrame(wx.Panel):
         if PageCount >= 2:
             for j in range(1, PageCount):
                 self.PreviewBook.DeletePage(1)
-        self.PreviewImage = self.InitImgPre
+        self.PreviewImage = InitImgPre
         self.PreviewPanel.Refresh()
-        self.cacheFilesPath, BaseClassID = ExtractAssetBundle(abPath, self.ProcessInfo, 'painting')
-        if self.cacheFilesPath == BaseClassID == 1:
-            return 1
+        RootPath = './cache/painting'
+        if os.path.exists(RootPath):
+            for cacheFolder in os.listdir(RootPath):
+                rmtree(f'{RootPath}/{cacheFolder}')
+        if not os.path.exists(RootPath): os.mkdir(RootPath)
+        self.cacheFilesPath = f'{RootPath}/{os.path.basename(ABPath)}'
+        os.mkdir(self.cacheFilesPath)
+        BaseClassID = ExtractAssetBundle(ABPath, self.cacheFilesPath, self.ProcessInfo, 'TextAsset')
+        if BaseClassID == -1:
+            return -1
         self.ProcessInfo.AppendText('Building RectTransform Object...\n')
         self.RectList = []
         self.RectPathIDList = []
@@ -284,7 +308,7 @@ class PaintingFrame(wx.Panel):
         if LayersRect.name != 'layers':
             if not self.CacheRectList:
                 self.ProcessInfo.AppendText('\nERROR: No needed or unable to analyze.')
-                return 1
+                return -1
             else:
                 LayersRect = self.CacheRectList[0]
                 LayersRect.Continue()
@@ -362,7 +386,7 @@ class PaintingFrame(wx.Panel):
         self.RectNameScaleDict = dict(zip(self.RectNameList, self.RectLocalScaleList))
         self.PaintingList = self.RectNameList[:]
         self.CheckList = [False for l in range(0, len(self.RectNameList))]
-        self.ProcessInfo.AppendText('\nDone! Please load painting pictures.\n')
+        self.ProcessInfo.AppendText('\nDone! Please load painting.\n')
         return self.ActivePainting()
     def ActivePainting(self):
         self.Sub_Painting.Enable()
@@ -381,22 +405,22 @@ class PaintingFrame(wx.Panel):
             TargetIndex = self.RectNameList.index(self.NeedsName)
             RawSizeData = self.RectNameRawSizeDict.get(self.NeedsName)
             RawSize = [RawSizeData[0] if RawSizeData[0] >= Painting.size[0] else Painting.size[0], RawSizeData[1] if RawSizeData[1] >= Painting.size[1] else Painting.size[1]]
-            Expend = Image.new('RGBA', tuple(RawSize), (0, 0, 0, 0))
+            Extend = Image.new('RGBA', tuple(RawSize), (0, 0, 0, 0))
             Painting = Painting.transpose(Image.FLIP_TOP_BOTTOM)
-            Expend.paste(Painting, (0, 0))
-            Painting = Expend.transpose(Image.FLIP_TOP_BOTTOM)
+            Extend.paste(Painting, (0, 0))
+            Painting = Extend.transpose(Image.FLIP_TOP_BOTTOM)
             SizeData = self.RectNameStretchSizeDict.get(self.NeedsName)
             StretchSize = [SizeData[0] if SizeData[0] >= Painting.size[0] else Painting.size[0], SizeData[1] if SizeData[1] >= Painting.size[1] else Painting.size[1]]
             Painting = Painting.resize(tuple(StretchSize), Image.ANTIALIAS)
             PaintingScale = self.RectNameScaleDict.get(self.NeedsName)
             Painting = Painting.resize((round(Decimal(Painting.size[0] * PaintingScale[0])), round(Decimal(Painting.size[1] * PaintingScale[1]))), Image.ANTIALIAS)
             if TargetIndex == 0:
-                Expend = Image.new('RGBA', (Painting.size[0] + self.ExPixelList[0] + self.ExPixelList[2], Painting.size[1] + self.ExPixelList[1] + self.ExPixelList[3]), (0, 0, 0, 0))
-                Expend.paste(Painting, (self.ExPixelList[0], self.ExPixelList[1]))
-                Painting = Expend
+                Extend = Image.new('RGBA', (Painting.size[0] + self.ExPixelList[0] + self.ExPixelList[2], Painting.size[1] + self.ExPixelList[1] + self.ExPixelList[3]), (0, 0, 0, 0))
+                Extend.paste(Painting, (self.ExPixelList[0], self.ExPixelList[1]))
+                Painting = Extend
             self.PaintingList[TargetIndex] = Painting
             self.CheckList[TargetIndex] = True
-            PageImage = wx.StaticBitmap(self.PreviewBook, bitmap = self.ReleasePreview(Painting), pos = (-64, -64))
+            PageImage = wx.StaticBitmap(self.PreviewBook, bitmap = ReleasePreview(Painting), pos = (-64, -64))
             for k in range(1, self.PreviewBook.GetPageCount()):
                 if self.PreviewBook.GetPageText(k) == self.NeedsName:
                     self.PreviewBook.DeletePage(k)
@@ -419,7 +443,7 @@ class PaintingFrame(wx.Panel):
         return 0
     def GroupPainting(self):
         RectNamePicDict = dict(zip(self.RectNameList, self.PaintingList))
-        self.GroupedPainting = self.InitImg
+        self.GroupedPainting = InitImg
         for RectName in self.RectNameList:
             Painting = RectNamePicDict.get(RectName)
             if isinstance(Painting, Image.Image):
@@ -439,19 +463,9 @@ class PaintingFrame(wx.Panel):
                 break
         if len(set(self.CheckList)) == 1 and set(self.CheckList) == {True}:
             self.SaveButton.Enable()
-        self.PreviewImage = self.ReleasePreview(self.GroupedPainting)
+        self.PreviewImage = ReleasePreview(self.GroupedPainting)
         self.PreviewPanel.Refresh()
         return 0
-    def ReleasePreview(self, imgObject):
-        Blank = Image.new('RGBA', (864, 540), (0, 0, 0, 0))
-        width = round(Decimal(imgObject.size[0] / imgObject.size[1] * 540))
-        height = 540
-        if width > 864:
-            width = 864
-            height = round(Decimal(imgObject.size[1] / imgObject.size[0] * 864))
-        Example = imgObject.resize((width, height), Image.ANTIALIAS)
-        Blank.paste(Example, (round((864 - width) / 2), round((540 - height) / 2)))
-        return wx.Bitmap(img = wx.Image(width = 864, height = 540, data = Blank.convert('RGB').tobytes(), alpha = Blank.tobytes()[3::4]))
     def RefreshPreview(self, event):
         buffer = wx.BufferedPaintDC(self.PreviewPanel)
         buffer.Clear()
@@ -474,29 +488,296 @@ class PaintingFrame(wx.Panel):
         return 0
     def DoNothing(self, event):
         return 0 
+class PaintingfaceFrame(wx.Panel):
+    def __init__(self, Parent):
+        super().__init__(Parent)
+        Sub_TaskFile = wx.StaticBox(self, label = '文件处理', pos = (16, 10), size = (384, 255))
+        self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
+        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
+        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
+        self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+
+        self.Sub_Painting = wx.StaticBox(self, label = '差分表情导入', pos = (16, 273), size = (384, 255))
+        self.LoadPaintingButton = wx.Button(self.Sub_Painting, label = '导入主立绘', pos = (16, 22), size = (109, 30))
+        self.LoadFace2DButton = wx.Button(self.Sub_Painting, label = '导入差分 - 图片', pos = (137, 22), size = (109, 30))
+        self.LoadFaceFileButton = wx.Button(self.Sub_Painting, label = '导入差分 - 文件', pos = (258, 22), size = (109, 30))
+        self.InfoNotebook = wx.Notebook(self.Sub_Painting, pos = (13, 66), size = (357, 174))
+        self.InfoNotebook.SetBackgroundColour('#FFFFFF')
+        self.FaceProcessInfo = wx.TextCtrl(self.InfoNotebook, style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+        self.FaceListBox = wx.ListBox(self.InfoNotebook, style = wx.LB_SINGLE | wx.LB_HSCROLL | wx.LB_OWNERDRAW)
+        self.InfoNotebook.AddPage(self.FaceProcessInfo, '处理日志')
+        self.InfoNotebook.AddPage(self.FaceListBox, '差分列表')
+        self.LoadFace2DButton.Disable()
+        self.LoadFaceFileButton.Disable()
+        self.Sub_Painting.Disable()
+
+        self.PreviewBook = wx.Notebook(self, pos = (416, 10), size = (872, 570))
+        self.PreviewPanel = wx.Panel(self.PreviewBook)
+        self.PreviewPanel.SetBackgroundColour('#FFFFFF')
+        self.PreviewBook.AddPage(self.PreviewPanel, 'Preview')
+        self.PreviewImage = InitImgPre
+        self.PreviewPanel.Refresh()
+        self.SaveButton = wx.Button(self, label = '保存', pos = (15, 544), size = (186, 36))
+        self.SaveButton.Disable()
+        self.OpenFolderButton = wx.Button(self, label = '打开文件夹', pos = (215, 544), size = (186, 36))
+
+        self.PreviewPanel.Bind(wx.EVT_ERASE_BACKGROUND, self.DoNothing)
+        self.PreviewPanel.Bind(wx.EVT_PAINT, self.RefreshPreview)
+        self.LoadFileButton.Bind(wx.EVT_BUTTON, self.LoadFile)
+        self.LoadPaintingButton.Bind(wx.EVT_BUTTON, self.LoadPainting)
+        self.LoadFace2DButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_2D)
+        self.LoadFaceFileButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_File)
+        self.FaceListBox.Bind(wx.EVT_LISTBOX, self.SwitchPreview)
+        self.SaveButton.Bind(wx.EVT_BUTTON, self.SaveTo)
+        self.OpenFolderButton.Bind(wx.EVT_BUTTON, self.OpenFolder)
+    def LoadFile(self, event):
+        fileDia = wx.FileDialog(self, message = '导入文件', defaultDir = PaintingfaceConfigs.filesPath)
+        if fileDia.ShowModal() == wx.ID_OK:
+            self.TaskLabel.SetLabel(fileDia.GetFilename())
+            filePath = fileDia.GetPath()
+            PaintingfaceConfigs.Update(pf1 = os.path.split(filePath)[0])
+            return self.Paintingface(filePath)
+    def Paintingface(self, ABPath):
+        self.LoadFace2DButton.Disable()
+        self.LoadFaceFileButton.Disable()
+        self.FaceProcessInfo.Clear()
+        self.FaceListBox.Clear()
+        self.InfoNotebook.SetSelection(0)
+        self.Sub_Painting.Disable()
+        self.SaveButton.Disable()
+        self.PreviewImage = InitImgPre
+        self.PreviewPanel.Refresh()
+        RootPath = './cache/paintigface'
+        self.ABBasename = os.path.basename(ABPath)
+        self.TextAssetPath = f'{RootPath}/TextAsset'
+        self.Texture2DPath = f'{RootPath}/Texture2D'
+        if os.path.exists(self.TextAssetPath):
+            for cacheFolder in os.listdir(self.TextAssetPath):
+                rmtree(f'{self.TextAssetPath}/{cacheFolder}')
+        if os.path.exists(self.Texture2DPath):
+            for cacheFolder in os.listdir(self.Texture2DPath):
+                rmtree(f'{self.Texture2DPath}/{cacheFolder}')
+        if not os.path.exists(RootPath): os.mkdir(RootPath)
+        if not os.path.exists(self.TextAssetPath): os.mkdir(self.TextAssetPath)
+        if not os.path.exists(self.Texture2DPath): os.mkdir(self.Texture2DPath)
+        self.cacheTextAssetPath = f'{self.TextAssetPath}/{self.ABBasename}'
+        os.mkdir(self.cacheTextAssetPath)
+        BaseClassID = ExtractAssetBundle(ABPath, self.cacheTextAssetPath, self.ProcessInfo, 'TextAsset')
+        if BaseClassID == -1:
+            return -1
+        self.ProcessInfo.AppendText('Building RectTransform Object...\n')
+        self.RectList = []
+        self.FaceList = []
+        with open(f'{self.cacheTextAssetPath}/{BaseClassID}.txt', 'r') as BaseData:
+            for dataLines in BaseData.readlines():
+                if 'm_PathID' in dataLines:
+                    ChildrenPathID = dataLines.split(' ')[1]
+                    with open(f'{self.cacheTextAssetPath}/{ChildrenPathID}.txt', 'r') as ChildrenData:
+                        if 'RectTransform' in ChildrenData.readlines()[0]:
+                            MainRectPathID = ChildrenPathID
+                            break
+        MainRect = RectTransform(self.cacheTextAssetPath, MainRectPathID)
+        MainRect.Continue()
+        MainRect.SetFatherRectObject(None)
+        MainRect.CalculateRectSize()
+        MainRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
+        self.RectList.append(MainRect)
+        for FacePathID in MainRect.ChildrenPathID:
+            FaceRect = RectTransform(self.cacheTextAssetPath, FacePathID)
+            if FaceRect.name == 'face':
+                FaceRect.Continue()
+                break
+        else:
+            self.ProcessInfo.AppendText('\nERROR: Useless Unity web file.\n')
+            return -1
+        self.RectList.append(FaceRect)
+        FaceRect.SetFatherRectObject(MainRect)
+        FaceRect.CalculateRectSize()
+        self.ProcessInfo.AppendText('Calculating coordinates...\n')
+        self.FacePastePoint = (
+            round(Decimal((FaceRect.AnchorMax[0] - FaceRect.AnchorMin[0]) * MainRect.Size[0] * FaceRect.Pivot[0] + FaceRect.AnchorMin[0] * MainRect.Size[0] + FaceRect.AnchoredPosition[0] - FaceRect.Size[0] * FaceRect.Pivot[0] * FaceRect.LocalScale[0])) + 1,
+            round(Decimal((FaceRect.AnchorMax[1] - FaceRect.AnchorMin[1]) * MainRect.Size[1] * FaceRect.Pivot[1] + FaceRect.AnchorMin[1] * MainRect.Size[1] + FaceRect.AnchoredPosition[1] - FaceRect.Size[1] * FaceRect.Pivot[1] * FaceRect.LocalScale[1])) + 1
+        )
+        self.CheckList = [False for n in range(0, len(self.RectList))]
+        self.PaintingRawSize = tuple(MainRect.RawSize)
+        self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
+        self.WildCard_Painting = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.ABBasename)
+        self.WildCard_Face2D = f'Required Files ({PaintingfaceConfigs.wildCard2D})|{PaintingfaceConfigs.wildCard2D}|All Paintingface (*.png)|*.png'.replace(r'{name}', self.ABBasename)
+        self.WildCard_FaceFile = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}|All Files (*.*)|*.*'.replace(r'{name}', self.ABBasename)
+        self.ProcessInfo.AppendText('\nDone! Please load painting & paintingface.\n')
+        self.Sub_Painting.Enable()
+    def LoadPainting(self, event):
+        paintingDia = wx.FileDialog(self, message = '导入立绘', defaultDir = PaintingConfigs.paintingPath, wildcard = self.WildCard_Painting)
+        if paintingDia.ShowModal() == wx.ID_OK:
+            PaintingPath = paintingDia.GetPath()
+            Painting = Image.open(PaintingPath).transpose(Image.FLIP_TOP_BOTTOM)
+            self.MainPainting = Image.new('RGBA', self.PaintingRawSize, (0, 0, 0, 0))
+            self.MainPainting.paste(Painting, (0, 0))
+            PaintingConfigs.Update(p2 = os.path.split(PaintingPath)[0])
+            self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
+            self.CheckList[0] = True
+            self.LoadFace2DButton.Enable()
+            self.LoadFaceFileButton.Enable()
+            return self.PasteFace()
+    def LoadPaintingface_2D(self, event):
+        Face2DDia = wx.FileDialog(self, message = '导入差分表情', defaultDir = PaintingfaceConfigs.face2DPath, wildcard = self.WildCard_Face2D)
+        if Face2DDia.ShowModal() == wx.ID_OK:
+            self.FaceList = []
+            self.FaceNameList = []
+            FacePath = Face2DDia.GetPath()
+            Face = Image.open(FacePath).transpose(Image.FLIP_TOP_BOTTOM)
+            PaintingfaceConfigs.Update(pf2 = os.path.split(FacePath)[0])
+            self.FaceList.append(Face)
+            self.FaceNameList.append(Face2DDia.GetFilename())
+            self.CheckList[1] = True
+            return self.PasteFace()
+    def LoadPaintingface_File(self, event):
+        FaceFileDia = wx.FileDialog(self, message = '导入差分表情文件', defaultDir = PaintingfaceConfigs.faceFilePath, wildcard = self.WildCard_FaceFile)
+        if FaceFileDia.ShowModal() == wx.ID_OK:
+            filePath = FaceFileDia.GetPath()
+            PaintingfaceConfigs.Update(pf3 = os.path.split(filePath)[0])
+            return self.PaintingfaceTexture2D(filePath)
+    def PaintingfaceTexture2D(self, ABPath):
+        self.FaceProcessInfo.Clear()
+        if os.path.exists(self.Texture2DPath):
+            for cacheFolder in os.listdir(self.Texture2DPath):
+                rmtree(f'{self.Texture2DPath}/{cacheFolder}')
+        self.cacheTexture2DPath = f'{self.Texture2DPath}/{self.ABBasename}'
+        os.mkdir(self.cacheTexture2DPath)
+        resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'Texture2D')
+        if resSFilePath == -1:
+            return -1
+        self.FaceList = []
+        self.FaceNameList = []
+        FacePathIDList = []
+        self.FaceProcessInfo.AppendText('Building Texture2D image...\n')
+        with open(f'{self.cacheTexture2DPath}/1.txt', 'r') as ABAssetEnum:
+            ABInfo = ABAssetEnum.readlines()
+            for dataLines in ABInfo:
+                if 'm_PathID' in dataLines:
+                    if 'data' in ABInfo[ABInfo.index(dataLines) - 2]:
+                        AssetPathID = dataLines.split(' ')[1]
+                        with open(f'{self.cacheTexture2DPath}/{AssetPathID}.txt', 'r') as Asset:
+                            AssetComponent = Asset.readlines()
+                            if 'Texture2D' in AssetComponent[0]:
+                                FacePathIDList.append(AssetPathID)
+                                for TextureDataLines in AssetComponent:
+                                    if 'm_Name' in TextureDataLines:
+                                        self.FaceNameList.append(TextureDataLines.split('"')[1])
+                                        break
+        if not '0' in self.FaceNameList:
+            self.FaceProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
+            return -1
+        FaceSize = [0, 0]
+        StreamOffset = 0
+        StreamSize = 0
+        FaceNamePathIDDict = dict(zip(self.FaceNameList, FacePathIDList))
+        self.FaceNameList.sort()
+        with open(resSFilePath, 'rb') as resSData:
+            for FaceName in self.FaceNameList:
+                with open(f'{self.cacheTexture2DPath}/{FaceNamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
+                    TextureDataList = TextureData.readlines()
+                    for dataLines in TextureDataList:
+                        if 'm_Width' in dataLines:
+                            FaceSize[0] = int(dataLines.split(' ')[1])
+                        elif 'm_Height' in dataLines:
+                            FaceSize[1] = int(dataLines.split(' ')[1])
+                        elif 'm_StreamData' in dataLines:
+                            StreamDataList = TextureDataList[TextureDataList.index(dataLines) + 1 : TextureDataList.index(dataLines) + 3]
+                            for StreamData in StreamDataList:
+                                if 'offset' in StreamData:
+                                    StreamOffset = int(StreamData.split(' ')[1])
+                                elif 'size' in StreamData:
+                                    StreamSize = int(StreamData.split(' ')[1])
+                resSData.seek(StreamOffset)
+                ImageData = resSData.read(StreamSize)
+                FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+                self.FaceList.append(FaceImage)
+        self.CheckList[1] = True
+        self.FaceProcessInfo.AppendText('\nDone!\n')
+        return self.PasteFace()
+    def PasteFace(self):
+        self.PaintingWithFaceList = []
+        for face in self.FaceList:
+            Painting = self.MainPainting.copy()
+            FaceBlank = Image.new('RGBA', Painting.size, (0, 0, 0, 0))
+            FaceBlank.paste(face, self.FacePastePoint)
+            Painting = Image.alpha_composite(Painting, FaceBlank)
+            self.PaintingWithFaceList.append(Painting.transpose(Image.FLIP_TOP_BOTTOM))
+        if not self.PaintingWithFaceList:
+            self.PaintingWithFace = self.MainPainting.copy().transpose(Image.FLIP_TOP_BOTTOM)
+        else:
+            self.FaceNamePaintingDict = dict(zip(self.FaceNameList, self.PaintingWithFaceList))
+            self.PaintingWithFace = self.PaintingWithFaceList[0]
+            self.FaceListBox.SetItems(self.FaceNameList)
+            self.FaceListBox.SetSelection(0)
+            self.InfoNotebook.SetSelection(1)
+        if len(set(self.CheckList)) == 1 and set(self.CheckList) == {True}:
+            self.SaveButton.Enable()
+        self.PreviewImage = ReleasePreview(self.PaintingWithFace)
+        self.PreviewPanel.Refresh()
+        return 0
+    def SwitchPreview(self, event):
+        self.PaintingWithFace = self.FaceNamePaintingDict.get(self.FaceListBox.GetStringSelection())
+        self.PreviewImage = ReleasePreview(self.PaintingWithFace)
+        self.PreviewPanel.Refresh()
+        return 0
+    def SaveTo(self, event):
+        self.SwitchPreview(None)
+        self.PaintingWithFace.save(self.FileName)
+        return 0
+    def OpenFolder(self, event):
+        try:
+            if not os.path.exists(self.FileName):
+                os.popen(f'explorer {PaintingConfigs.paintingPath}')
+            else:
+                os.popen(f'explorer /select,"{self.FileName}"')
+        except:
+            os.popen(f'explorer {PaintingConfigs.paintingPath}')
+        return 0
+    def RefreshPreview(self, event):
+        buffer = wx.BufferedPaintDC(self.PreviewPanel)
+        buffer.Clear()
+        try:
+            buffer.DrawBitmap(self.PreviewImage, x = 0, y = 0)
+        except:
+            pass
+        return 0
+    def DoNothing(self, event):
+        return 0
 class WorkFrame(wx.Frame):
     def __init__(self):
-        wx.Frame.__init__(self, parent = None, title = '操作面板', size = (1359, 690), style = wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX)
+        super().__init__(parent = None, title = '操作面板', size = (1359, 690), style = wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX)
         self.Centre()
         FramePanel = wx.Panel(self)
         PanelBook = wx.Notebook(FramePanel, pos = (17, 10), size = (1311, 625))
         PanelBook.SetBackgroundColour('#F0F0F0')
         PaintingPanel = PaintingFrame(PanelBook)
+        PaintingfacePanel = PaintingfaceFrame(PanelBook)
         PanelBook.AddPage(PaintingPanel, '立绘合并')
+        PanelBook.AddPage(PaintingfacePanel, '差分接头')
         self.Bind(wx.EVT_CLOSE, self.OnClose)
     def OnClose(self, event):
         self.Destroy()
         for cacheFolder in os.listdir('./cache'):
-            rmtree(f'./cache/{cacheFolder}')
-        PaintingConfigs.UpdateFile()
-        PaintingFaceConfigs.UpdateFile()
+            rmtree(f'./cache/{cacheFolder}', ignore_errors = True)
+        configFile.update(PaintingConfigs.FileForm())
+        configFile.update(PaintingfaceConfigs.FileForm())
+        with open('ALPAConfigs.yml', 'w', encoding = 'utf-8') as yamlFile:
+            yaml.safe_dump(configFile, yamlFile, allow_unicode = True, sort_keys = False)
         return 0
 
+InitImg = Image.new('RGBA', (864, 540), (255, 255, 255, 255))
+TextFont = ImageFont.truetype('arialbd', 54)
+DrawImage = ImageDraw.Draw(InitImg)
+DrawImage.text((318, 193), ' Preview\n     not\navailable', fill = (116, 116, 116), font = TextFont)
+InitImgData = InitImg.convert('RGB').tobytes()
 with open('ALPAConfigs.yml', encoding = 'utf-8') as yamlFile:
     configFile = yaml.safe_load(yamlFile)
-PaintingConfigs = ConfigSet('painting')
-PaintingFaceConfigs = ConfigSet('paintingface')
+PaintingConfigs = PaintingSetting(configFile.get('painting'))
+PaintingfaceConfigs = PaintingfaceSetting(configFile.get('paintingface'))
 MainApp = wx.App()
+InitImgPre = wx.Bitmap(img = wx.Image(width = 864, height = 540, data = InitImgData))
 CtrlFrame = WorkFrame()
 CtrlFrame.Show()
 MainApp.MainLoop()
