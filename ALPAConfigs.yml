@@ -4,5 +4,7 @@ painting:
   wildCard: '*{name}.png;*{name}_dec.png'
 paintingface:
   importFilesPath: C:\Users
-  importFacePath: C:\Users
-  wildCard: 0.png;{name}_head.png
+  importFace2DPath: C:\Users
+  importFaceFilePath: C:\Users
+  wildCard_2D: 0.png;{name}_head.png
+  wildCard_File: '{name}'
