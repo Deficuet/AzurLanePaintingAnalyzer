@@ -26,6 +26,7 @@ class PaintingSetting:
         return updateDict
 class PaintingfaceSetting:
     def __init__(self, setting):
+        self.IsCorrection = setting.get('ApplyCorrection')
         self.filesPath = setting.get('importFilesPath')
         self.face2DPath = setting.get('importFace2DPath')
         self.faceFilePath = setting.get('importFaceFilePath')
@@ -39,6 +40,7 @@ class PaintingfaceSetting:
     def FileForm(self):
         updateDict = {
             'paintingface': {
+                'ApplyCorrection': self.IsCorrection,
                 'importFilesPath': self.filesPath,
                 'importFace2DPath': self.face2DPath,
                 'importFaceFilePath': self.faceFilePath,
@@ -136,7 +138,7 @@ class RectTransform:
                 Decimal(self.SizeDelta[1] + (self.AnchorMax[1] - self.AnchorMin[1]) * self.__FatherRect.Size[1])
             ]
         return 0
-def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode):
+def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '0'):
     Reflect.Clear()
     abBasename = os.path.basename(ABPath)
     dataPath = 'N/A'
@@ -170,7 +172,7 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode):
     a = os.popen(f'binary2text {CABPath}').read()
     LastPathID = '0'
     dataLineList = []
-    BaseClassID = '0'
+    BaseClassID = InitBaseClassID
     Reflect.AppendText('Spliting AssetBundle data...\n')
     with open(f'{CABPath}.txt', 'r') as abComponent:
         Reflect.AppendText('Creating cache files...\n')
@@ -189,7 +191,8 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode):
                     LastPathID = PathID
             elif LastPathID != '0':
                 dataLineList.append(dataLines)
-                if f'm_Name "{abBasename}" (string)' in dataLines:
+                if ((f'm_Name "{abBasename}" (string)' in dataLines) or
+                    (f'm_Name "{abBasename.upper()}" (string)' in dataLines)):
                     BaseClassID = PathID
         with open(f'{cacheSavePath}/{PathID}.txt', 'w') as cacheFile:
             cacheFile.write(''.join(dataLineList))
@@ -495,12 +498,15 @@ class PaintingfaceFrame(wx.Panel):
         self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
         TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
         self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
+        self.CorrectCheckBox = wx.CheckBox(Sub_TaskFile, label = '坐标补正', pos = (292, 31))
+        self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
+        self.CorrectCheckBox.Disable()
         self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
 
         self.Sub_Painting = wx.StaticBox(self, label = '差分表情导入', pos = (16, 273), size = (384, 255))
         self.LoadPaintingButton = wx.Button(self.Sub_Painting, label = '导入主立绘', pos = (16, 22), size = (109, 30))
-        self.LoadFace2DButton = wx.Button(self.Sub_Painting, label = '导入差分 - 图片', pos = (137, 22), size = (109, 30))
-        self.LoadFaceFileButton = wx.Button(self.Sub_Painting, label = '导入差分 - 文件', pos = (258, 22), size = (109, 30))
+        self.LoadFaceFileButton = wx.Button(self.Sub_Painting, label = '导入差分 - 文件', pos = (137, 22), size = (109, 30))
+        self.LoadFace2DButton = wx.Button(self.Sub_Painting, label = '导入差分 - 图片', pos = (258, 22), size = (109, 30))
         self.InfoNotebook = wx.Notebook(self.Sub_Painting, pos = (13, 66), size = (357, 174))
         self.InfoNotebook.SetBackgroundColour('#FFFFFF')
         self.FaceProcessInfo = wx.TextCtrl(self.InfoNotebook, style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
@@ -524,9 +530,10 @@ class PaintingfaceFrame(wx.Panel):
         self.PreviewPanel.Bind(wx.EVT_ERASE_BACKGROUND, self.DoNothing)
         self.PreviewPanel.Bind(wx.EVT_PAINT, self.RefreshPreview)
         self.LoadFileButton.Bind(wx.EVT_BUTTON, self.LoadFile)
+        self.CorrectCheckBox.Bind(wx.EVT_CHECKBOX, self.ApplyCorrection)
         self.LoadPaintingButton.Bind(wx.EVT_BUTTON, self.LoadPainting)
-        self.LoadFace2DButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_2D)
         self.LoadFaceFileButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_File)
+        self.LoadFace2DButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_2D)
         self.FaceListBox.Bind(wx.EVT_LISTBOX, self.SwitchPreview)
         self.SaveButton.Bind(wx.EVT_BUTTON, self.SaveTo)
         self.OpenFolderButton.Bind(wx.EVT_BUTTON, self.OpenFolder)
@@ -536,8 +543,11 @@ class PaintingfaceFrame(wx.Panel):
             self.TaskLabel.SetLabel(fileDia.GetFilename())
             filePath = fileDia.GetPath()
             PaintingfaceConfigs.Update(pf1 = os.path.split(filePath)[0])
+            self.InfoNotebook.SetSelection(0)
             return self.Paintingface(filePath)
     def Paintingface(self, ABPath):
+        self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
+        self.CorrectCheckBox.Disable()
         self.LoadFace2DButton.Disable()
         self.LoadFaceFileButton.Disable()
         self.FaceProcessInfo.Clear()
@@ -598,12 +608,13 @@ class PaintingfaceFrame(wx.Panel):
             round(Decimal((FaceRect.AnchorMax[0] - FaceRect.AnchorMin[0]) * MainRect.Size[0] * FaceRect.Pivot[0] + FaceRect.AnchorMin[0] * MainRect.Size[0] + FaceRect.AnchoredPosition[0] - FaceRect.Size[0] * FaceRect.Pivot[0] * FaceRect.LocalScale[0])) + 1,
             round(Decimal((FaceRect.AnchorMax[1] - FaceRect.AnchorMin[1]) * MainRect.Size[1] * FaceRect.Pivot[1] + FaceRect.AnchorMin[1] * MainRect.Size[1] + FaceRect.AnchoredPosition[1] - FaceRect.Size[1] * FaceRect.Pivot[1] * FaceRect.LocalScale[1])) + 1
         )
+        self.ExactPastePoint = (self.FacePastePoint[0] - (not PaintingfaceConfigs.IsCorrection), self.FacePastePoint[1] - (not PaintingfaceConfigs.IsCorrection))
         self.CheckList = [False for n in range(0, len(self.RectList))]
         self.PaintingRawSize = tuple(MainRect.RawSize)
         self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
         self.WildCard_Painting = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.ABBasename)
         self.WildCard_Face2D = f'Required Files ({PaintingfaceConfigs.wildCard2D})|{PaintingfaceConfigs.wildCard2D}|All Paintingface (*.png)|*.png'.replace(r'{name}', self.ABBasename)
-        self.WildCard_FaceFile = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}|All Files (*.*)|*.*'.replace(r'{name}', self.ABBasename)
+        self.WildCard_FaceFile = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}|All Files (*.*)|*.*'.replace(r'{name}', '_'.join(self.ABBasename.split('_', 2)[:2]))
         self.ProcessInfo.AppendText('\nDone! Please load painting & paintingface.\n')
         self.Sub_Painting.Enable()
     def LoadPainting(self, event):
@@ -616,6 +627,7 @@ class PaintingfaceFrame(wx.Panel):
             PaintingConfigs.Update(p2 = os.path.split(PaintingPath)[0])
             self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
             self.CheckList[0] = True
+            self.CorrectCheckBox.Enable()
             self.LoadFace2DButton.Enable()
             self.LoadFaceFileButton.Enable()
             return self.PasteFace()
@@ -629,6 +641,7 @@ class PaintingfaceFrame(wx.Panel):
             PaintingfaceConfigs.Update(pf2 = os.path.split(FacePath)[0])
             self.FaceList.append(Face)
             self.FaceNameList.append(Face2DDia.GetFilename())
+            self.FaceProcessInfo.Clear()
             self.CheckList[1] = True
             return self.PasteFace()
     def LoadPaintingface_File(self, event):
@@ -646,11 +659,12 @@ class PaintingfaceFrame(wx.Panel):
         os.mkdir(self.cacheTexture2DPath)
         resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'Texture2D')
         if resSFilePath == -1:
-            return -1
+            resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'TextAsset', 1)
+            if resSFilePath != 1:
+                return -1
         self.FaceList = []
         self.FaceNameList = []
         FacePathIDList = []
-        self.FaceProcessInfo.AppendText('Building Texture2D image...\n')
         with open(f'{self.cacheTexture2DPath}/1.txt', 'r') as ABAssetEnum:
             ABInfo = ABAssetEnum.readlines()
             for dataLines in ABInfo:
@@ -665,16 +679,42 @@ class PaintingfaceFrame(wx.Panel):
                                     if 'm_Name' in TextureDataLines:
                                         self.FaceNameList.append(TextureDataLines.split('"')[1])
                                         break
-        if not '0' in self.FaceNameList:
+        FaceSize = [0, 0]
+        FaceNamePathIDDict = dict(zip(self.FaceNameList, FacePathIDList))
+        try:
+            SortList = [int(m) for m in self.FaceNameList]
+        except ValueError:
             self.FaceProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
             return -1
-        FaceSize = [0, 0]
-        StreamOffset = 0
-        StreamSize = 0
-        FaceNamePathIDDict = dict(zip(self.FaceNameList, FacePathIDList))
-        self.FaceNameList.sort()
-        with open(resSFilePath, 'rb') as resSData:
+        SortList.sort()
+        self.FaceNameList = [str(n) for n in SortList]
+        self.FaceProcessInfo.AppendText('Building Paintingface images...\n')
+        if resSFilePath != 1:
+            StreamOffset = 0
+            StreamSize = 0
+            with open(resSFilePath, 'rb') as resSData:
+                for FaceName in self.FaceNameList:
+                    with open(f'{self.cacheTexture2DPath}/{FaceNamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
+                        TextureDataList = TextureData.readlines()
+                        for dataLines in TextureDataList:
+                            if 'm_Width' in dataLines:
+                                FaceSize[0] = int(dataLines.split(' ')[1])
+                            elif 'm_Height' in dataLines:
+                                FaceSize[1] = int(dataLines.split(' ')[1])
+                            elif 'm_StreamData' in dataLines:
+                                StreamDataList = TextureDataList[TextureDataList.index(dataLines) + 1 : TextureDataList.index(dataLines) + 3]
+                                for StreamData in StreamDataList:
+                                    if 'offset' in StreamData:
+                                        StreamOffset = int(StreamData.split(' ')[1])
+                                    elif 'size' in StreamData:
+                                        StreamSize = int(StreamData.split(' ')[1])
+                    resSData.seek(StreamOffset)
+                    ImageData = resSData.read(StreamSize)
+                    FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+                    self.FaceList.append(FaceImage)
+        else:
             for FaceName in self.FaceNameList:
+                dataList = []
                 with open(f'{self.cacheTexture2DPath}/{FaceNamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
                     TextureDataList = TextureData.readlines()
                     for dataLines in TextureDataList:
@@ -682,16 +722,12 @@ class PaintingfaceFrame(wx.Panel):
                             FaceSize[0] = int(dataLines.split(' ')[1])
                         elif 'm_Height' in dataLines:
                             FaceSize[1] = int(dataLines.split(' ')[1])
-                        elif 'm_StreamData' in dataLines:
-                            StreamDataList = TextureDataList[TextureDataList.index(dataLines) + 1 : TextureDataList.index(dataLines) + 3]
-                            for StreamData in StreamDataList:
-                                if 'offset' in StreamData:
-                                    StreamOffset = int(StreamData.split(' ')[1])
-                                elif 'size' in StreamData:
-                                    StreamSize = int(StreamData.split(' ')[1])
-                resSData.seek(StreamOffset)
-                ImageData = resSData.read(StreamSize)
-                FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+                        elif 'data' in dataLines:
+                            imgData = dataLines.split(': ')[1].split(' ')
+                            imgIntData = [int(x) for x in imgData]
+                            dataList.extend(imgIntData)
+                databytes = bytes(dataList)
+                FaceImage = Image.frombytes('RGBA', tuple(FaceSize), databytes, 'raw')
                 self.FaceList.append(FaceImage)
         self.CheckList[1] = True
         self.FaceProcessInfo.AppendText('\nDone!\n')
@@ -701,7 +737,7 @@ class PaintingfaceFrame(wx.Panel):
         for face in self.FaceList:
             Painting = self.MainPainting.copy()
             FaceBlank = Image.new('RGBA', Painting.size, (0, 0, 0, 0))
-            FaceBlank.paste(face, self.FacePastePoint)
+            FaceBlank.paste(face, self.ExactPastePoint)
             Painting = Image.alpha_composite(Painting, FaceBlank)
             self.PaintingWithFaceList.append(Painting.transpose(Image.FLIP_TOP_BOTTOM))
         if not self.PaintingWithFaceList:
@@ -717,6 +753,12 @@ class PaintingfaceFrame(wx.Panel):
         self.PreviewImage = ReleasePreview(self.PaintingWithFace)
         self.PreviewPanel.Refresh()
         return 0
+    def ApplyCorrection(self, event):
+        if self.CorrectCheckBox.GetValue():
+            self.ExactPastePoint = self.FacePastePoint
+        elif not self.CorrectCheckBox.GetValue():
+            self.ExactPastePoint = (self.FacePastePoint[0] - 1, self.FacePastePoint[1] - 1)
+        return self.PasteFace()
     def SwitchPreview(self, event):
         self.PaintingWithFace = self.FaceNamePaintingDict.get(self.FaceListBox.GetStringSelection())
         self.PreviewImage = ReleasePreview(self.PaintingWithFace)
