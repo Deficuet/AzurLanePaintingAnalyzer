@@ -665,6 +665,7 @@ class PaintingfaceFrame(wx.Panel):
         if resSFilePath == -1:
             resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'TextAsset', 1)
             if resSFilePath != 1:
+                self.FaceProcessInfo.AppendText('\nERROR: Invalid paintingface AssetBundle.\n')
                 return -1
         self.FaceList = []
         self.FaceNameList = []
