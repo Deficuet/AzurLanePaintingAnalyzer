@@ -2,6 +2,7 @@
 from PIL import Image, ImageFont, ImageDraw
 from shutil import rmtree, copy
 from decimal import Decimal
+import tex2img
 import yaml
 import os
 import wx
@@ -181,6 +182,7 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
                 continue
             elif dataLines[:3] == 'ID:':
                 PathID = dataLines.split(' ')[1]
+                AssetType = dataLines.split(' ')[-1]
                 if LastPathID == '0':
                     LastPathID = PathID
                     dataLineList.append(dataLines.split(' ')[-1])
@@ -191,9 +193,10 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
                     LastPathID = PathID
             elif LastPathID != '0':
                 dataLineList.append(dataLines)
-                if ((f'm_Name "{abBasename}" (string)' in dataLines) or
-                    (f'm_Name "{abBasename.upper()}" (string)' in dataLines)):
-                    BaseClassID = PathID
+                if 'GameObject' in AssetType:
+                    if ((f'm_Name "{abBasename}" (string)' in dataLines) or
+                        (f'm_Name "{abBasename.upper()}" (string)' in dataLines)):
+                        BaseClassID = PathID
         with open(f'{cacheSavePath}/{PathID}.txt', 'w') as cacheFile:
             cacheFile.write(''.join(dataLineList))
     if Mode == 'Texture2D':
@@ -649,6 +652,7 @@ class PaintingfaceFrame(wx.Panel):
         if FaceFileDia.ShowModal() == wx.ID_OK:
             filePath = FaceFileDia.GetPath()
             PaintingfaceConfigs.Update(pf3 = os.path.split(filePath)[0])
+            self.InfoNotebook.SetSelection(0)
             return self.PaintingfaceTexture2D(filePath)
     def PaintingfaceTexture2D(self, ABPath):
         self.FaceProcessInfo.Clear()
@@ -664,7 +668,12 @@ class PaintingfaceFrame(wx.Panel):
                 return -1
         self.FaceList = []
         self.FaceNameList = []
-        FacePathIDList = []
+        SpriteOffsetList = []
+        SpriteSizeList = []
+        TexturePathIDList = []
+        TexNameList = []
+        TexRectOffset = [0, 0]
+        TexRectSize = [0, 0]
         with open(f'{self.cacheTexture2DPath}/1.txt', 'r') as ABAssetEnum:
             ABInfo = ABAssetEnum.readlines()
             for dataLines in ABInfo:
@@ -673,65 +682,123 @@ class PaintingfaceFrame(wx.Panel):
                         AssetPathID = dataLines.split(' ')[1]
                         with open(f'{self.cacheTexture2DPath}/{AssetPathID}.txt', 'r') as Asset:
                             AssetComponent = Asset.readlines()
-                            if 'Texture2D' in AssetComponent[0]:
-                                FacePathIDList.append(AssetPathID)
-                                for TextureDataLines in AssetComponent:
-                                    if 'm_Name' in TextureDataLines:
-                                        self.FaceNameList.append(TextureDataLines.split('"')[1])
-                                        break
-        FaceSize = [0, 0]
-        FaceNamePathIDDict = dict(zip(self.FaceNameList, FacePathIDList))
+                            if 'Sprite' in AssetComponent[0]:
+                                for SpriteDataLines in AssetComponent:
+                                    if 'm_Name' in SpriteDataLines:
+                                        self.FaceNameList.append(SpriteDataLines.split('"')[1])
+                                    elif 'm_Rect' in SpriteDataLines:
+                                        TextureRectInfo = AssetComponent[AssetComponent.index(SpriteDataLines) + 1 : AssetComponent.index(SpriteDataLines) + 5]
+                                        for TexRectLines in TextureRectInfo:
+                                            if 'width' in TexRectLines:
+                                                TexRectSize[0] = round(Decimal(TexRectLines.split(' ')[1]))
+                                            elif 'height' in TexRectLines:
+                                                TexRectSize[1] = round(Decimal(TexRectLines.split(' ')[1]))
+                                    elif 'texture  (PPtr<Texture2D>)' in SpriteDataLines:
+                                        TextureInfo = AssetComponent[AssetComponent.index(SpriteDataLines) + 1 : AssetComponent.index(SpriteDataLines) + 3]
+                                        for TexInfo in TextureInfo:
+                                            if 'm_PathID' in TexInfo:
+                                                TexturePathID = TexInfo.split(' ')[1]
+                                                TexturePathIDList.append(TexturePathID)
+                                                with open(f'{self.cacheTexture2DPath}/{TexturePathID}.txt', 'r') as TexData:
+                                                    for TexDataLines in TexData.readlines():
+                                                        if 'm_Name' in TexDataLines:
+                                                            TexNameList.append(TexDataLines.split('"')[1])
+                                                            break
+                                    elif 'textureRect  (Rectf)' in SpriteDataLines:
+                                        SpriteRectInfo = AssetComponent[AssetComponent.index(SpriteDataLines) + 1 : AssetComponent.index(SpriteDataLines) + 5]
+                                        for SpriteRectLines in SpriteRectInfo:
+                                            if 'x' in SpriteRectLines:
+                                                TexRectOffset[0] = round(Decimal(SpriteRectLines.split(' ')[1]))
+                                            elif 'y' in SpriteRectLines:
+                                                TexRectOffset[1] = round(Decimal(SpriteRectLines.split(' ')[1]))
+                                SpriteOffsetList.append(tuple(TexRectOffset))
+                                SpriteSizeList.append(tuple(TexRectSize))
+        FaceNamePathIDDict = dict(zip(self.FaceNameList, TexturePathIDList))
+        SpriteNameOffsetDict = dict(zip(self.FaceNameList, SpriteOffsetList))
+        SpriteNameSizeDict = dict(zip(self.FaceNameList, SpriteSizeList))
         try:
             SortList = [int(m) for m in self.FaceNameList]
         except ValueError:
             self.FaceProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
             return -1
+        try:
+            [int(p) for p in TexNameList]
+        except ValueError:
+            IsCutting = True
+        else:
+            IsCutting = False
         SortList.sort()
         self.FaceNameList = [str(n) for n in SortList]
         self.FaceProcessInfo.AppendText('Building Paintingface images...\n')
-        if resSFilePath != 1:
-            StreamOffset = 0
-            StreamSize = 0
-            with open(resSFilePath, 'rb') as resSData:
+        if not IsCutting:
+            if resSFilePath != 1:
+                with open(resSFilePath, 'rb') as resSData:
+                    for FaceName in self.FaceNameList:
+                        FaceImage = self.Texture2DFromResS(FaceName, FaceNamePathIDDict, resSData)
+                        self.FaceList.append(FaceImage)
+            else:
                 for FaceName in self.FaceNameList:
-                    with open(f'{self.cacheTexture2DPath}/{FaceNamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
-                        TextureDataList = TextureData.readlines()
-                        for dataLines in TextureDataList:
-                            if 'm_Width' in dataLines:
-                                FaceSize[0] = int(dataLines.split(' ')[1])
-                            elif 'm_Height' in dataLines:
-                                FaceSize[1] = int(dataLines.split(' ')[1])
-                            elif 'm_StreamData' in dataLines:
-                                StreamDataList = TextureDataList[TextureDataList.index(dataLines) + 1 : TextureDataList.index(dataLines) + 3]
-                                for StreamData in StreamDataList:
-                                    if 'offset' in StreamData:
-                                        StreamOffset = int(StreamData.split(' ')[1])
-                                    elif 'size' in StreamData:
-                                        StreamSize = int(StreamData.split(' ')[1])
-                    resSData.seek(StreamOffset)
-                    ImageData = resSData.read(StreamSize)
-                    FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+                    FaceImage = self.Texture2DFromString(FaceName, FaceNamePathIDDict)
                     self.FaceList.append(FaceImage)
         else:
-            for FaceName in self.FaceNameList:
-                dataList = []
-                with open(f'{self.cacheTexture2DPath}/{FaceNamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
-                    TextureDataList = TextureData.readlines()
-                    for dataLines in TextureDataList:
-                        if 'm_Width' in dataLines:
-                            FaceSize[0] = int(dataLines.split(' ')[1])
-                        elif 'm_Height' in dataLines:
-                            FaceSize[1] = int(dataLines.split(' ')[1])
-                        elif 'data' in dataLines:
-                            imgData = dataLines.split(': ')[1].split(' ')
-                            imgIntData = [int(x) for x in imgData]
-                            dataList.extend(imgIntData)
-                databytes = bytes(dataList)
-                FaceImage = Image.frombytes('RGBA', tuple(FaceSize), databytes, 'raw')
-                self.FaceList.append(FaceImage)
+            if resSFilePath != 1:
+                with open(resSFilePath, 'rb') as resSData:
+                    FaceImageSet = self.Texture2DFromResS(self.FaceNameList[0], FaceNamePathIDDict, resSData)
+                    for FaceName in self.FaceNameList:
+                        offset = SpriteNameOffsetDict.get(FaceName)
+                        size = SpriteNameSizeDict.get(FaceName)
+                        FaceImage = FaceImageSet.crop(offset + (offset[0] + size[0], offset[1] + size[1]))
+                        self.FaceList.append(FaceImage)
         self.CheckList[1] = True
         self.FaceProcessInfo.AppendText('\nDone!\n')
         return self.PasteFace()
+    def Texture2DFromResS(self, FaceName, NamePathIDDict, resSData):
+        StreamOffset = 0
+        StreamSize = 0
+        FaceSize = [0, 0]
+        with open(f'{self.cacheTexture2DPath}/{NamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
+            TextureDataList = TextureData.readlines()
+            for dataLines in TextureDataList:
+                if 'm_Width' in dataLines:
+                    FaceSize[0] = int(dataLines.split(' ')[1])
+                elif 'm_Height' in dataLines:
+                    FaceSize[1] = int(dataLines.split(' ')[1])
+                elif 'm_StreamData' in dataLines:
+                    StreamDataList = TextureDataList[TextureDataList.index(dataLines) + 1 : TextureDataList.index(dataLines) + 3]
+                    for StreamData in StreamDataList:
+                        if 'offset' in StreamData:
+                            StreamOffset = int(StreamData.split(' ')[1])
+                        elif 'size' in StreamData:
+                            StreamSize = int(StreamData.split(' ')[1])
+        resSData.seek(StreamOffset)
+        ImageData = resSData.read(StreamSize)
+        try:
+            FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+        except ValueError:
+            ImageData = tex2img.decompress_etc(ImageData, FaceSize[0], FaceSize[1], 3)
+            FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+        return FaceImage
+    def Texture2DFromString(self, FaceName, NamePathIDDict):
+        dataList = []
+        FaceSize = [0, 0]
+        with open(f'{self.cacheTexture2DPath}/{NamePathIDDict.get(FaceName)}.txt', 'r') as TextureData:
+            TextureDataList = TextureData.readlines()
+            for dataLines in TextureDataList:
+                if 'm_Width' in dataLines:
+                    FaceSize[0] = int(dataLines.split(' ')[1])
+                elif 'm_Height' in dataLines:
+                    FaceSize[1] = int(dataLines.split(' ')[1])
+                elif 'data' in dataLines:
+                    imgData = dataLines.split(': ')[1].split(' ')
+                    imgIntData = [int(x) for x in imgData]
+                    dataList.extend(imgIntData)
+        databytes = bytes(dataList)
+        try:
+            FaceImage = Image.frombytes('RGBA', tuple(FaceSize), databytes, 'raw')
+        except ValueError:
+            databytes = tex2img.decompress_etc(databytes, FaceSize[0], FaceSize[1], 3)
+            FaceImage = Image.frombytes('RGBA', tuple(FaceSize), databytes, 'raw')
+        return FaceImage
     def PasteFace(self):
         self.PaintingWithFaceList = []
         for face in self.FaceList:
