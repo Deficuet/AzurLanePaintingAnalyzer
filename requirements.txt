@@ -1,0 +1,4 @@
+wxPython==4.0.7.post2
+tex2img==0.9.0
+Pillow==8.0.1
+PyYAML==5.3.1

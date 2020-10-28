@@ -164,11 +164,12 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
                 CABPath = CABFile
             elif suffix == '.resS':
                 resSPath = CABFile
-    if ((Mode == 'TextAsset' and len(set(SuffixList)) != 1) or
-        (Mode == 'Texture2D' and not '.resS' in set(SuffixList))):
+
+    if Mode == 'Texture2D' and not '.resS' in set(SuffixList):
         Reflect.AppendText("\nERROR: Invalid Unity web file.\n")
         rmtree(os.path.split(CABFile)[0])
         return -1
+
     Reflect.AppendText('Reading unpacked CAB File...\n')
     a = os.popen(f'binary2text {CABPath}').read()
     LastPathID = '0'
@@ -194,8 +195,7 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
             elif LastPathID != '0':
                 dataLineList.append(dataLines)
                 if 'GameObject' in AssetType:
-                    if ((f'm_Name "{abBasename}" (string)' in dataLines) or
-                        (f'm_Name "{abBasename.upper()}" (string)' in dataLines)):
+                    if f'm_Name "{abBasename}" (string)'.lower() in dataLines.lower():
                         BaseClassID = PathID
         with open(f'{cacheSavePath}/{PathID}.txt', 'w') as cacheFile:
             cacheFile.write(''.join(dataLineList))
@@ -663,8 +663,8 @@ class PaintingfaceFrame(wx.Panel):
         os.mkdir(self.cacheTexture2DPath)
         resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'Texture2D')
         if resSFilePath == -1:
-            resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'TextAsset', 1)
-            if resSFilePath != 1:
+            resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'TextAsset', '-1')
+            if resSFilePath != '-1':
                 self.FaceProcessInfo.AppendText('\nERROR: Invalid paintingface AssetBundle.\n')
                 return -1
         self.FaceList = []
@@ -728,7 +728,7 @@ class PaintingfaceFrame(wx.Panel):
         self.FaceNameList = [str(n) for n in SortList]
         self.FaceProcessInfo.AppendText('Building Paintingface images...\n')
         if not IsCutting:
-            if resSFilePath != 1:
+            if resSFilePath != '-1':
                 with open(resSFilePath, 'rb') as resSData:
                     for FaceName in self.FaceNameList:
                         FaceImage = self.Texture2DFromResS(FaceNamePathIDDict.get(FaceName), resSData)
@@ -738,7 +738,7 @@ class PaintingfaceFrame(wx.Panel):
                     FaceImage = self.Texture2DFromString(FaceNamePathIDDict.get(FaceName))
                     self.FaceList.append(FaceImage)
         else:
-            if resSFilePath != 1:
+            if resSFilePath != '-1':
                 with open(resSFilePath, 'rb') as resSData:
                     TextureList = []
                     for TexPathID in TexturePathIDSet:
@@ -806,16 +806,19 @@ class PaintingfaceFrame(wx.Panel):
         return FaceImage
     def PasteFace(self):
         self.PaintingWithFaceList = []
+        PreviewImageList = []
         for face in self.FaceList:
             Painting = self.MainPainting.copy()
             FaceBlank = Image.new('RGBA', Painting.size, (0, 0, 0, 0))
             FaceBlank.paste(face, self.ExactPastePoint)
-            Painting = Image.alpha_composite(Painting, FaceBlank)
-            self.PaintingWithFaceList.append(Painting.transpose(Image.FLIP_TOP_BOTTOM))
+            Painting = Image.alpha_composite(Painting, FaceBlank).transpose(Image.FLIP_TOP_BOTTOM)
+            self.PaintingWithFaceList.append(Painting)
+            PreviewImageList.append(ReleasePreview(Painting))
         if not self.PaintingWithFaceList:
             self.PaintingWithFace = self.MainPainting.copy().transpose(Image.FLIP_TOP_BOTTOM)
         else:
             self.FaceNamePaintingDict = dict(zip(self.FaceNameList, self.PaintingWithFaceList))
+            self.FaceNamePreviewDict = dict(zip(self.FaceNameList, PreviewImageList))
             self.PaintingWithFace = self.PaintingWithFaceList[0]
             self.FaceListBox.SetItems(self.FaceNameList)
             self.FaceListBox.SetSelection(0)
@@ -832,8 +835,9 @@ class PaintingfaceFrame(wx.Panel):
             self.ExactPastePoint = (self.FacePastePoint[0] - 1, self.FacePastePoint[1] - 1)
         return self.PasteFace()
     def SwitchPreview(self, event):
-        self.PaintingWithFace = self.FaceNamePaintingDict.get(self.FaceListBox.GetStringSelection())
-        self.PreviewImage = ReleasePreview(self.PaintingWithFace)
+        FaceName = self.FaceListBox.GetStringSelection()
+        self.PaintingWithFace = self.FaceNamePaintingDict.get(FaceName)
+        self.PreviewImage = self.FaceNamePreviewDict.get(FaceName)
         self.PreviewPanel.Refresh()
         return 0
     def SaveTo(self, event):
@@ -886,6 +890,7 @@ TextFont = ImageFont.truetype('arialbd', 54)
 DrawImage = ImageDraw.Draw(InitImg)
 DrawImage.text((318, 193), ' Preview\n     not\navailable', fill = (116, 116, 116), font = TextFont)
 InitImgData = InitImg.convert('RGB').tobytes()
+if not os.path.exists('./cache'): os.mkdir('./cache')
 with open('ALPAConfigs.yml', encoding = 'utf-8') as yamlFile:
     configFile = yaml.safe_load(yamlFile)
 PaintingConfigs = PaintingSetting(configFile.get('painting'))
