@@ -164,12 +164,10 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
                 CABPath = CABFile
             elif suffix == '.resS':
                 resSPath = CABFile
-
     if Mode == 'Texture2D' and not '.resS' in set(SuffixList):
         Reflect.AppendText("\nERROR: Invalid Unity web file.\n")
         rmtree(os.path.split(CABFile)[0])
         return -1
-
     Reflect.AppendText('Reading unpacked CAB File...\n')
     a = os.popen(f'binary2text {CABPath}').read()
     LastPathID = '0'
@@ -419,7 +417,7 @@ class PaintingFrame(wx.Panel):
             StretchSize = [SizeData[0] if SizeData[0] >= Painting.size[0] else Painting.size[0], SizeData[1] if SizeData[1] >= Painting.size[1] else Painting.size[1]]
             Painting = Painting.resize(tuple(StretchSize), Image.ANTIALIAS)
             PaintingScale = self.RectNameScaleDict.get(self.NeedsName)
-            Painting = Painting.resize((round(Decimal(Painting.size[0] * PaintingScale[0])), round(Decimal(Painting.size[1] * PaintingScale[1]))), Image.ANTIALIAS)
+            Painting = Painting.resize((round(Painting.size[0] * PaintingScale[0]), round(Painting.size[1] * PaintingScale[1])), Image.ANTIALIAS)
             if TargetIndex == 0:
                 Extend = Image.new('RGBA', (Painting.size[0] + self.ExPixelList[0] + self.ExPixelList[2], Painting.size[1] + self.ExPixelList[1] + self.ExPixelList[3]), (0, 0, 0, 0))
                 Extend.paste(Painting, (self.ExPixelList[0], self.ExPixelList[1]))
@@ -501,9 +499,11 @@ class PaintingfaceFrame(wx.Panel):
         self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
         TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
         self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
-        self.CorrectCheckBox = wx.CheckBox(Sub_TaskFile, label = '坐标补正', pos = (292, 31))
+        self.CorrectCheckBox = wx.CheckBox(Sub_TaskFile, label = '坐标补正', pos = (292, 18))
         self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
         self.CorrectCheckBox.Disable()
+        self.GroupCorrectCB = wx.CheckBox(Sub_TaskFile, label = '合并补正', pos = (292, 40))
+        self.GroupCorrectCB.Disable()
         self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
 
         self.Sub_Painting = wx.StaticBox(self, label = '差分表情导入', pos = (16, 273), size = (384, 255))
@@ -534,6 +534,7 @@ class PaintingfaceFrame(wx.Panel):
         self.PreviewPanel.Bind(wx.EVT_PAINT, self.RefreshPreview)
         self.LoadFileButton.Bind(wx.EVT_BUTTON, self.LoadFile)
         self.CorrectCheckBox.Bind(wx.EVT_CHECKBOX, self.ApplyCorrection)
+        self.GroupCorrectCB.Bind(wx.EVT_CHECKBOX, self.ApplyCorrection)
         self.LoadPaintingButton.Bind(wx.EVT_BUTTON, self.LoadPainting)
         self.LoadFaceFileButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_File)
         self.LoadFace2DButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_2D)
@@ -551,6 +552,7 @@ class PaintingfaceFrame(wx.Panel):
     def Paintingface(self, ABPath):
         self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
         self.CorrectCheckBox.Disable()
+        self.GroupCorrectCB.Disable()
         self.LoadFace2DButton.Disable()
         self.LoadFaceFileButton.Disable()
         self.FaceProcessInfo.Clear()
@@ -589,48 +591,55 @@ class PaintingfaceFrame(wx.Panel):
                         if 'RectTransform' in ChildrenData.readlines()[0]:
                             MainRectPathID = ChildrenPathID
                             break
-        MainRect = RectTransform(self.cacheTextAssetPath, MainRectPathID)
-        MainRect.Continue()
-        MainRect.SetFatherRectObject(None)
-        MainRect.CalculateRectSize()
-        MainRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
-        self.RectList.append(MainRect)
-        for FacePathID in MainRect.ChildrenPathID:
-            FaceRect = RectTransform(self.cacheTextAssetPath, FacePathID)
-            if FaceRect.name == 'face':
-                FaceRect.Continue()
+        self.MainRect = RectTransform(self.cacheTextAssetPath, MainRectPathID)
+        self.MainRect.Continue()
+        self.MainRect.SetFatherRectObject(None)
+        self.MainRect.CalculateRectSize()
+        self.MainRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
+        self.RectList.append(self.MainRect)
+        for FacePathID in self.MainRect.ChildrenPathID:
+            self.FaceRect = RectTransform(self.cacheTextAssetPath, FacePathID)
+            if self.FaceRect.name == 'face':
+                self.FaceRect.Continue()
                 break
         else:
             self.ProcessInfo.AppendText('\nERROR: Useless Unity web file.\n')
             return -1
-        self.RectList.append(FaceRect)
-        FaceRect.SetFatherRectObject(MainRect)
-        FaceRect.CalculateRectSize()
+        self.RectList.append(self.FaceRect)
+        self.FaceRect.SetFatherRectObject(self.MainRect)
+        self.FaceRect.CalculateRectSize()
         self.ProcessInfo.AppendText('Calculating coordinates...\n')
-        self.FacePastePoint = (
-            round(Decimal((FaceRect.AnchorMax[0] - FaceRect.AnchorMin[0]) * MainRect.Size[0] * FaceRect.Pivot[0] + FaceRect.AnchorMin[0] * MainRect.Size[0] + FaceRect.AnchoredPosition[0] - FaceRect.Size[0] * FaceRect.Pivot[0] * FaceRect.LocalScale[0])) + 1,
-            round(Decimal((FaceRect.AnchorMax[1] - FaceRect.AnchorMin[1]) * MainRect.Size[1] * FaceRect.Pivot[1] + FaceRect.AnchorMin[1] * MainRect.Size[1] + FaceRect.AnchoredPosition[1] - FaceRect.Size[1] * FaceRect.Pivot[1] * FaceRect.LocalScale[1])) + 1
-        )
-        self.ExactPastePoint = (self.FacePastePoint[0] - (not PaintingfaceConfigs.IsCorrection), self.FacePastePoint[1] - (not PaintingfaceConfigs.IsCorrection))
+        self.PastePoint()
         self.CheckList = [False for n in range(0, len(self.RectList))]
-        self.PaintingRawSize = tuple(MainRect.RawSize)
         self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
         self.WildCard_Painting = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.ABBasename)
         self.WildCard_Face2D = f'Required Files ({PaintingfaceConfigs.wildCard2D})|{PaintingfaceConfigs.wildCard2D}|All Paintingface (*.png)|*.png'.replace(r'{name}', self.ABBasename)
         self.WildCard_FaceFile = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}|All Files (*.*)|*.*'.replace(r'{name}', '_'.join(self.ABBasename.split('_', 2)[:2]))
         self.ProcessInfo.AppendText('\nDone! Please load painting & paintingface.\n')
         self.Sub_Painting.Enable()
+    def PastePoint(self):
+        GeneralCrction = self.CorrectCheckBox.GetValue()
+        GroupCrction = self.GroupCorrectCB.GetValue()
+        self.FacePastePoint = (
+            round(Decimal((self.FaceRect.AnchorMax[0] - self.FaceRect.AnchorMin[0]) * self.MainRect.Size[0] * self.FaceRect.Pivot[0] + self.FaceRect.AnchorMin[0] * self.MainRect.Size[0] + self.FaceRect.AnchoredPosition[0] - self.FaceRect.Size[0] * self.FaceRect.Pivot[0] * self.FaceRect.LocalScale[0])) + GeneralCrction + GroupCrction,
+            round(Decimal((self.FaceRect.AnchorMax[1] - self.FaceRect.AnchorMin[1]) * self.MainRect.Size[1] * self.FaceRect.Pivot[1] + self.FaceRect.AnchorMin[1] * self.MainRect.Size[1] + self.FaceRect.AnchoredPosition[1] - self.FaceRect.Size[1] * self.FaceRect.Pivot[1] * self.FaceRect.LocalScale[1])) + GeneralCrction + GroupCrction
+        )
+        return 0
+    def ApplyCorrection(self, event):
+        self.PastePoint()
+        return self.PasteFace()
     def LoadPainting(self, event):
         paintingDia = wx.FileDialog(self, message = '导入立绘', defaultDir = PaintingConfigs.paintingPath, wildcard = self.WildCard_Painting)
         if paintingDia.ShowModal() == wx.ID_OK:
             PaintingPath = paintingDia.GetPath()
             Painting = Image.open(PaintingPath).transpose(Image.FLIP_TOP_BOTTOM)
-            self.MainPainting = Image.new('RGBA', self.PaintingRawSize, (0, 0, 0, 0))
+            self.MainPainting = Image.new('RGBA', tuple(self.MainRect.Size), (0, 0, 0, 0))
             self.MainPainting.paste(Painting, (0, 0))
             PaintingConfigs.Update(p2 = os.path.split(PaintingPath)[0])
             self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
             self.CheckList[0] = True
             self.CorrectCheckBox.Enable()
+            self.GroupCorrectCB.Enable()
             self.LoadFace2DButton.Enable()
             self.LoadFaceFileButton.Enable()
             return self.PasteFace()
@@ -641,6 +650,7 @@ class PaintingfaceFrame(wx.Panel):
             self.FaceNameList = []
             FacePath = Face2DDia.GetPath()
             Face = Image.open(FacePath).transpose(Image.FLIP_TOP_BOTTOM)
+            Face = Face.resize((round(Face.size[0] * self.FaceRect.LocalScale[0]), round(Face.size[1] * self.FaceRect.LocalScale[1])), Image.ANTIALIAS)
             PaintingfaceConfigs.Update(pf2 = os.path.split(FacePath)[0])
             self.FaceList.append(Face)
             self.FaceNameList.append(Face2DDia.GetFilename())
@@ -782,6 +792,7 @@ class PaintingfaceFrame(wx.Panel):
         except ValueError:
             ImageData = tex2img.decompress_etc(ImageData, FaceSize[0], FaceSize[1], 3)
             FaceImage = Image.frombuffer('RGBA', tuple(FaceSize), ImageData, 'raw', 'RGBA', 0, 1)
+        FaceImage = FaceImage.resize((round(FaceImage.size[0] * self.FaceRect.LocalScale[0]), round(FaceImage.size[1] * self.FaceRect.LocalScale[1])), Image.ANTIALIAS)
         return FaceImage
     def Texture2DFromString(self, TexturePathID):
         dataList = []
@@ -803,22 +814,20 @@ class PaintingfaceFrame(wx.Panel):
         except ValueError:
             databytes = tex2img.decompress_etc(databytes, FaceSize[0], FaceSize[1], 3)
             FaceImage = Image.frombytes('RGBA', tuple(FaceSize), databytes, 'raw')
+        FaceImage = FaceImage.resize((round(FaceImage.size[0] * self.FaceRect.LocalScale[0]), round(FaceImage.size[1] * self.FaceRect.LocalScale[1])), Image.ANTIALIAS)
         return FaceImage
     def PasteFace(self):
         self.PaintingWithFaceList = []
-        PreviewImageList = []
         for face in self.FaceList:
             Painting = self.MainPainting.copy()
             FaceBlank = Image.new('RGBA', Painting.size, (0, 0, 0, 0))
-            FaceBlank.paste(face, self.ExactPastePoint)
+            FaceBlank.paste(face, self.FacePastePoint)
             Painting = Image.alpha_composite(Painting, FaceBlank).transpose(Image.FLIP_TOP_BOTTOM)
             self.PaintingWithFaceList.append(Painting)
-            PreviewImageList.append(ReleasePreview(Painting))
         if not self.PaintingWithFaceList:
             self.PaintingWithFace = self.MainPainting.copy().transpose(Image.FLIP_TOP_BOTTOM)
         else:
             self.FaceNamePaintingDict = dict(zip(self.FaceNameList, self.PaintingWithFaceList))
-            self.FaceNamePreviewDict = dict(zip(self.FaceNameList, PreviewImageList))
             self.PaintingWithFace = self.PaintingWithFaceList[0]
             self.FaceListBox.SetItems(self.FaceNameList)
             self.FaceListBox.SetSelection(0)
@@ -828,16 +837,9 @@ class PaintingfaceFrame(wx.Panel):
         self.PreviewImage = ReleasePreview(self.PaintingWithFace)
         self.PreviewPanel.Refresh()
         return 0
-    def ApplyCorrection(self, event):
-        if self.CorrectCheckBox.GetValue():
-            self.ExactPastePoint = self.FacePastePoint
-        elif not self.CorrectCheckBox.GetValue():
-            self.ExactPastePoint = (self.FacePastePoint[0] - 1, self.FacePastePoint[1] - 1)
-        return self.PasteFace()
     def SwitchPreview(self, event):
-        FaceName = self.FaceListBox.GetStringSelection()
-        self.PaintingWithFace = self.FaceNamePaintingDict.get(FaceName)
-        self.PreviewImage = self.FaceNamePreviewDict.get(FaceName)
+        self.PaintingWithFace = self.FaceNamePaintingDict.get(self.FaceListBox.GetStringSelection())
+        self.PreviewImage = ReleasePreview(self.PaintingWithFace)
         self.PreviewPanel.Refresh()
         return 0
     def SaveTo(self, event):
