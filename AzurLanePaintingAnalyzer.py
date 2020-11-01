@@ -201,7 +201,7 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
         returnValue = copy(resSPath, cacheSavePath)
     elif Mode == 'TextAsset':
         if BaseClassID == '0':
-            Reflect.AppendText('\nERROR: Not original file name.\n')
+            Reflect.AppendText('\nERROR: Not original file name or Invalid Unity web file.\n')
             returnValue = -1
         else:
             returnValue = BaseClassID
@@ -497,8 +497,10 @@ class PaintingfaceFrame(wx.Panel):
         super().__init__(Parent)
         Sub_TaskFile = wx.StaticBox(self, label = '文件处理', pos = (16, 10), size = (384, 255))
         self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
-        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
-        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
+        TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 19))
+        self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 19))
+        StatusTitle = wx.StaticText(Sub_TaskFile, label = '需要合并:', pos = (112, 40))
+        self.StatusLabel = wx.StaticText(Sub_TaskFile, label = 'N/A', pos = (170, 40))
         self.CorrectCheckBox = wx.CheckBox(Sub_TaskFile, label = '坐标补正', pos = (292, 18))
         self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
         self.CorrectCheckBox.Disable()
@@ -550,6 +552,8 @@ class PaintingfaceFrame(wx.Panel):
             self.InfoNotebook.SetSelection(0)
             return self.Paintingface(filePath)
     def Paintingface(self, ABPath):
+        self.StatusLabel.SetForegroundColour('#000000')
+        self.StatusLabel.SetLabel('N/A')
         self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
         self.CorrectCheckBox.Disable()
         self.GroupCorrectCB.Disable()
@@ -597,12 +601,22 @@ class PaintingfaceFrame(wx.Panel):
         self.MainRect.CalculateRectSize()
         self.MainRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
         self.RectList.append(self.MainRect)
+        IsGrouped = False
+        self.FaceRect = None
         for FacePathID in self.MainRect.ChildrenPathID:
-            self.FaceRect = RectTransform(self.cacheTextAssetPath, FacePathID)
-            if self.FaceRect.name == 'face':
+            VerifyRect = RectTransform(self.cacheTextAssetPath, FacePathID)
+            if VerifyRect.name == 'face':
+                self.FaceRect = VerifyRect
                 self.FaceRect.Continue()
-                break
+            elif VerifyRect.name in ['layers', 'paint']:
+                IsGrouped = True
+        if IsGrouped:
+            self.StatusLabel.SetForegroundColour('#BB0011')
+            self.StatusLabel.SetLabel('需要')
         else:
+            self.StatusLabel.SetForegroundColour('#248C18')
+            self.StatusLabel.SetLabel('不需要')
+        if self.FaceRect == None:
             self.ProcessInfo.AppendText('\nERROR: Useless Unity web file.\n')
             return -1
         self.RectList.append(self.FaceRect)
@@ -633,7 +647,8 @@ class PaintingfaceFrame(wx.Panel):
         if paintingDia.ShowModal() == wx.ID_OK:
             PaintingPath = paintingDia.GetPath()
             Painting = Image.open(PaintingPath).transpose(Image.FLIP_TOP_BOTTOM)
-            self.MainPainting = Image.new('RGBA', tuple(self.MainRect.Size), (0, 0, 0, 0))
+            PaintingSize = (self.MainRect.Size[0] if self.MainRect.Size[0] >= Painting.size[0] else Painting.size[0], self.MainRect.Size[1] if self.MainRect.Size[1] >= Painting.size[1] else Painting.size[1])
+            self.MainPainting = Image.new('RGBA', PaintingSize, (0, 0, 0, 0))
             self.MainPainting.paste(Painting, (0, 0))
             PaintingConfigs.Update(p2 = os.path.split(PaintingPath)[0])
             self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
