@@ -495,18 +495,31 @@ class PaintingFrame(wx.Panel):
 class PaintingfaceFrame(wx.Panel):
     def __init__(self, Parent):
         super().__init__(Parent)
-        Sub_TaskFile = wx.StaticBox(self, label = '文件处理', pos = (16, 10), size = (384, 255))
+        Sub_TaskFile = wx.StaticBox(self, label = '文件分析/计算', pos = (16, 10), size = (384, 255))
         self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
         TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 19))
         self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 19))
         StatusTitle = wx.StaticText(Sub_TaskFile, label = '需要合并:', pos = (112, 40))
         self.StatusLabel = wx.StaticText(Sub_TaskFile, label = 'N/A', pos = (170, 40))
-        self.CorrectCheckBox = wx.CheckBox(Sub_TaskFile, label = '坐标补正', pos = (292, 18))
+        self.FileNoteBook = wx.Notebook(Sub_TaskFile, pos = (13, 62), size = (357, 178))
+        self.ProcessInfo = wx.TextCtrl(self.FileNoteBook, style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+        SpinPanel = wx.Panel(self.FileNoteBook)
+        self.CorrectCheckBox = wx.CheckBox(SpinPanel, label = '一般补正', pos = (12, 12))
         self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
         self.CorrectCheckBox.Disable()
-        self.GroupCorrectCB = wx.CheckBox(Sub_TaskFile, label = '合并补正', pos = (292, 40))
+        self.GroupCorrectCB = wx.CheckBox(SpinPanel, label = '合并补正', pos = (96, 12))
         self.GroupCorrectCB.Disable()
-        self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+        self.ExtraCorrectCB = wx.CheckBox(SpinPanel, label = '额外补正:', pos = (12, 40))
+        self.ExtraCorrectCB.Disable()
+        self.ExtraSpinX = wx.SpinCtrl(SpinPanel, pos = (100, 38), size = (62, 22), style = wx.TE_PROCESS_ENTER)
+        self.ExtraSpinX.Disable()
+        self.ExtraSpinY = wx.SpinCtrl(SpinPanel, pos = (176, 38), size = (62, 22), style = wx.TE_PROCESS_ENTER)
+        self.ExtraSpinY.Disable()
+        BracketL = wx.StaticText(SpinPanel, label = '(', pos = (88, 40))
+        Comma = wx.StaticText(SpinPanel, label = ',', pos = (166, 40))
+        BracketR = wx.StaticText(SpinPanel, label = ')', pos = (246, 40))
+        self.FileNoteBook.AddPage(self.ProcessInfo, '处理日志')
+        self.FileNoteBook.AddPage(SpinPanel, '坐标微调')
 
         self.Sub_Painting = wx.StaticBox(self, label = '差分表情导入', pos = (16, 273), size = (384, 255))
         self.LoadPaintingButton = wx.Button(self.Sub_Painting, label = '导入主立绘', pos = (16, 22), size = (109, 30))
@@ -537,12 +550,15 @@ class PaintingfaceFrame(wx.Panel):
         self.LoadFileButton.Bind(wx.EVT_BUTTON, self.LoadFile)
         self.CorrectCheckBox.Bind(wx.EVT_CHECKBOX, self.ApplyCorrection)
         self.GroupCorrectCB.Bind(wx.EVT_CHECKBOX, self.ApplyCorrection)
+        self.ExtraCorrectCB.Bind(wx.EVT_CHECKBOX, self.ApplyCorrection)
         self.LoadPaintingButton.Bind(wx.EVT_BUTTON, self.LoadPainting)
         self.LoadFaceFileButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_File)
         self.LoadFace2DButton.Bind(wx.EVT_BUTTON, self.LoadPaintingface_2D)
         self.FaceListBox.Bind(wx.EVT_LISTBOX, self.SwitchPreview)
         self.SaveButton.Bind(wx.EVT_BUTTON, self.SaveTo)
         self.OpenFolderButton.Bind(wx.EVT_BUTTON, self.OpenFolder)
+        self.Bind(wx.EVT_TEXT_ENTER, self.ApplyCorrection)
+        self.Bind(wx.EVT_SPINCTRL, self.ApplyCorrection)
     def LoadFile(self, event):
         fileDia = wx.FileDialog(self, message = '导入文件', defaultDir = PaintingfaceConfigs.filesPath)
         if fileDia.ShowModal() == wx.ID_OK:
@@ -554,9 +570,17 @@ class PaintingfaceFrame(wx.Panel):
     def Paintingface(self, ABPath):
         self.StatusLabel.SetForegroundColour('#000000')
         self.StatusLabel.SetLabel('N/A')
+        self.FileNoteBook.SetSelection(0)
         self.CorrectCheckBox.SetValue(PaintingfaceConfigs.IsCorrection)
         self.CorrectCheckBox.Disable()
+        self.GroupCorrectCB.SetValue(0)
         self.GroupCorrectCB.Disable()
+        self.ExtraCorrectCB.SetValue(0)
+        self.ExtraCorrectCB.Disable()
+        self.ExtraSpinX.SetValue(0)
+        self.ExtraSpinX.Disable()
+        self.ExtraSpinY.SetValue(0)
+        self.ExtraSpinY.Disable()
         self.LoadFace2DButton.Disable()
         self.LoadFaceFileButton.Disable()
         self.FaceProcessInfo.Clear()
@@ -610,15 +634,15 @@ class PaintingfaceFrame(wx.Panel):
                 self.FaceRect.Continue()
             elif VerifyRect.name in ['layers', 'paint']:
                 IsGrouped = True
+        if self.FaceRect == None:
+            self.ProcessInfo.AppendText('\nERROR: Useless Unity web file.\n')
+            return -1
         if IsGrouped:
             self.StatusLabel.SetForegroundColour('#BB0011')
             self.StatusLabel.SetLabel('需要')
         else:
             self.StatusLabel.SetForegroundColour('#248C18')
             self.StatusLabel.SetLabel('不需要')
-        if self.FaceRect == None:
-            self.ProcessInfo.AppendText('\nERROR: Useless Unity web file.\n')
-            return -1
         self.RectList.append(self.FaceRect)
         self.FaceRect.SetFatherRectObject(self.MainRect)
         self.FaceRect.CalculateRectSize()
@@ -628,19 +652,26 @@ class PaintingfaceFrame(wx.Panel):
         self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_exp.png'
         self.WildCard_Painting = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.ABBasename)
         self.WildCard_Face2D = f'Required Files ({PaintingfaceConfigs.wildCard2D})|{PaintingfaceConfigs.wildCard2D}|All Paintingface (*.png)|*.png'.replace(r'{name}', self.ABBasename)
-        self.WildCard_FaceFile = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}|All Files (*.*)|*.*'.replace(r'{name}', '_'.join(self.ABBasename.split('_', 2)[:2]))
-        self.ProcessInfo.AppendText('\nDone! Please load painting & paintingface.\n')
+        WildCard_File1 = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}'.replace(r'{name}', '_'.join(self.ABBasename.split('_', 2)[:2]))
+        WildCard_File2 = f'Required Files ({PaintingfaceConfigs.wildCardFile})|{PaintingfaceConfigs.wildCardFile}|All Files (*.*)|*.*'.replace(r'{name}', self.ABBasename)
+        self.WildCard_FaceFile = '|'.join([WildCard_File1, WildCard_File2])
+        self.ProcessInfo.AppendText('\nDone! Please load painting & paintingface.')
         self.Sub_Painting.Enable()
     def PastePoint(self):
         GeneralCrction = self.CorrectCheckBox.GetValue()
         GroupCrction = self.GroupCorrectCB.GetValue()
+        ExtraCrctionX = 0 if not self.ExtraCorrectCB.GetValue() else self.ExtraSpinX.GetValue()
+        ExtraCrctionY = 0 if not self.ExtraCorrectCB.GetValue() else self.ExtraSpinY.GetValue()
         self.FacePastePoint = (
-            round(Decimal((self.FaceRect.AnchorMax[0] - self.FaceRect.AnchorMin[0]) * self.MainRect.Size[0] * self.FaceRect.Pivot[0] + self.FaceRect.AnchorMin[0] * self.MainRect.Size[0] + self.FaceRect.AnchoredPosition[0] - self.FaceRect.Size[0] * self.FaceRect.Pivot[0] * self.FaceRect.LocalScale[0])) + GeneralCrction + GroupCrction,
-            round(Decimal((self.FaceRect.AnchorMax[1] - self.FaceRect.AnchorMin[1]) * self.MainRect.Size[1] * self.FaceRect.Pivot[1] + self.FaceRect.AnchorMin[1] * self.MainRect.Size[1] + self.FaceRect.AnchoredPosition[1] - self.FaceRect.Size[1] * self.FaceRect.Pivot[1] * self.FaceRect.LocalScale[1])) + GeneralCrction + GroupCrction
+            round(Decimal((self.FaceRect.AnchorMax[0] - self.FaceRect.AnchorMin[0]) * self.MainRect.Size[0] * self.FaceRect.Pivot[0] + self.FaceRect.AnchorMin[0] * self.MainRect.Size[0] + self.FaceRect.AnchoredPosition[0] - self.FaceRect.Size[0] * self.FaceRect.Pivot[0] * self.FaceRect.LocalScale[0])) + GeneralCrction + GroupCrction + ExtraCrctionX,
+            round(Decimal((self.FaceRect.AnchorMax[1] - self.FaceRect.AnchorMin[1]) * self.MainRect.Size[1] * self.FaceRect.Pivot[1] + self.FaceRect.AnchorMin[1] * self.MainRect.Size[1] + self.FaceRect.AnchoredPosition[1] - self.FaceRect.Size[1] * self.FaceRect.Pivot[1] * self.FaceRect.LocalScale[1])) + GeneralCrction + GroupCrction + ExtraCrctionY
         )
         return 0
     def ApplyCorrection(self, event):
         self.PastePoint()
+        IsApplyExtra = self.ExtraCorrectCB.GetValue()
+        self.ExtraSpinX.Enable(IsApplyExtra)
+        self.ExtraSpinY.Enable(IsApplyExtra)
         return self.PasteFace()
     def LoadPainting(self, event):
         paintingDia = wx.FileDialog(self, message = '导入立绘', defaultDir = PaintingConfigs.paintingPath, wildcard = self.WildCard_Painting)
@@ -655,8 +686,14 @@ class PaintingfaceFrame(wx.Panel):
             self.CheckList[0] = True
             self.CorrectCheckBox.Enable()
             self.GroupCorrectCB.Enable()
+            self.ExtraSpinX.SetMin(0 - self.FacePastePoint[0])
+            self.ExtraSpinX.SetMax(Painting.size[0] - self.FacePastePoint[0])
+            self.ExtraSpinY.SetMin(0 - self.FacePastePoint[1])
+            self.ExtraSpinY.SetMax(Painting.size[1] - self.FacePastePoint[1])
+            self.ExtraCorrectCB.Enable()
             self.LoadFace2DButton.Enable()
             self.LoadFaceFileButton.Enable()
+            self.FileNoteBook.SetSelection(1)
             return self.PasteFace()
     def LoadPaintingface_2D(self, event):
         Face2DDia = wx.FileDialog(self, message = '导入差分表情', defaultDir = PaintingfaceConfigs.face2DPath, wildcard = self.WildCard_Face2D)
@@ -669,6 +706,8 @@ class PaintingfaceFrame(wx.Panel):
             PaintingfaceConfigs.Update(pf2 = os.path.split(FacePath)[0])
             self.FaceList.append(Face)
             self.FaceNameList.append(Face2DDia.GetFilename())
+            self.FaceListBox.SetItems(self.FaceNameList)
+            self.FaceListBox.SetSelection(0)
             self.FaceProcessInfo.Clear()
             self.CheckList[1] = True
             return self.PasteFace()
@@ -779,6 +818,8 @@ class PaintingfaceFrame(wx.Panel):
                 size = SpriteNameSizeDict.get(FaceName)
                 FaceImage = TexPathIDDict.get(FaceNamePathIDDict.get(FaceName)).crop(offset + (offset[0] + size[0], offset[1] + size[1]))
                 self.FaceList.append(FaceImage)
+        self.FaceListBox.SetItems(self.FaceNameList)
+        self.FaceListBox.SetSelection(0)
         self.CheckList[1] = True
         self.FaceProcessInfo.AppendText('\nDone!\n')
         return self.PasteFace()
@@ -843,9 +884,7 @@ class PaintingfaceFrame(wx.Panel):
             self.PaintingWithFace = self.MainPainting.copy().transpose(Image.FLIP_TOP_BOTTOM)
         else:
             self.FaceNamePaintingDict = dict(zip(self.FaceNameList, self.PaintingWithFaceList))
-            self.PaintingWithFace = self.PaintingWithFaceList[0]
-            self.FaceListBox.SetItems(self.FaceNameList)
-            self.FaceListBox.SetSelection(0)
+            self.PaintingWithFace = self.PaintingWithFaceList[self.FaceListBox.GetSelection()]
             self.InfoNotebook.SetSelection(1)
         if len(set(self.CheckList)) == 1 and set(self.CheckList) == {True}:
             self.SaveButton.Enable()
