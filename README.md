@@ -15,3 +15,5 @@ WebExtract.exe 和 binary2text.exe 取自 Unity64 - 2020.1.6f1
 支持导入单张图片作为差分表情，或者导入AssetBundle文件后自动分析多张差分表情并列出供选择
 
 应当仅Windows系统可用 <del>想了半天没反应过来其他操作系统跑个锤子.exe</del>
+
+食用方法以最新的release说明补充的为准
