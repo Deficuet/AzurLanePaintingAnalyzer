@@ -17,3 +17,5 @@ WebExtract.exe 和 binary2text.exe 取自 Unity64 - 2020.1.6f1
 应当仅Windows系统可用 <del>想了半天没反应过来其他操作系统跑个锤子.exe</del>
 
 食用方法以最新的release说明补充的为准
+
+Python 版本为3.7.3
