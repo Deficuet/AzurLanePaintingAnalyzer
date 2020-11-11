@@ -82,10 +82,15 @@ class RectTransform:
                     ChildrenData = component.readlines()
                     if 'MonoBehaviour' in ChildrenData[0]:
                         for MonoInfo in ChildrenData:
-                            if 'mRawSpriteSize' in MonoInfo:
+                            if 'm_Sprite' in MonoInfo:
+                                SpriteIndex = ChildrenData.index(MonoInfo)
+                                SpriteInfo = ChildrenData[SpriteIndex + 1 : SpriteIndex + 3]
+                                for SpriteLines in SpriteInfo:
+                                    if 'm_PathID' in SpriteLines:
+                                        self.SpriteKey = SpriteLines.split(' ')[1]
+                                        break
+                            elif 'mRawSpriteSize' in MonoInfo:
                                 self.RawSize = self.GeneralDataProcess(MonoInfo)
-                                break
-                        break
         with open(self.path, 'r') as component:
             RectData = component.readlines()
             for dataLines in RectData:
@@ -125,7 +130,7 @@ class RectTransform:
     def SetFatherRectObject(self, RectObject):
         self.__FatherRect = RectObject
         return 0
-    def GeneralDataProcess(self, dataLine: str):
+    def GeneralDataProcess(self, dataLine):
         dataList = []
         for data in dataLine.split('(')[1].split(')')[0].split(' '):
             dataList.append(Decimal(data))
@@ -139,9 +144,8 @@ class RectTransform:
                 Decimal(self.SizeDelta[1] + (self.AnchorMax[1] - self.AnchorMin[1]) * self.__FatherRect.Size[1])
             ]
         return 0
-def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '0'):
+def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode):
     Reflect.Clear()
-    abBasename = os.path.basename(ABPath)
     dataPath = 'N/A'
     WebExtractInfo = os.popen(f'WebExtract {ABPath}').readlines()
     Reflect.AppendText('Unpacking AssetBundle...\n')
@@ -165,14 +169,12 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
             elif suffix == '.resS':
                 resSPath = CABFile
     if Mode == 'Texture2D' and not '.resS' in set(SuffixList):
-        Reflect.AppendText("\nERROR: Invalid Unity web file.\n")
         rmtree(os.path.split(CABFile)[0])
         return -1
     Reflect.AppendText('Reading unpacked CAB File...\n')
     a = os.popen(f'binary2text {CABPath}').read()
     LastPathID = '0'
     dataLineList = []
-    BaseClassID = InitBaseClassID
     Reflect.AppendText('Spliting AssetBundle data...\n')
     with open(f'{CABPath}.txt', 'r') as abComponent:
         Reflect.AppendText('Creating cache files...\n')
@@ -181,32 +183,25 @@ def ExtractAssetBundle(ABPath, cacheSavePath, Reflect, Mode, InitBaseClassID = '
                 continue
             elif dataLines[:3] == 'ID:':
                 PathID = dataLines.split(' ')[1]
-                AssetType = dataLines.split(' ')[-1]
                 if LastPathID == '0':
-                    LastPathID = PathID
                     dataLineList.append(dataLines.split(' ')[-1])
-                if PathID != LastPathID:
+                elif PathID != LastPathID:
                     with open(f'{cacheSavePath}/{LastPathID}.txt', 'w') as cacheFile:
                         cacheFile.write(''.join(dataLineList))
                     dataLineList = [dataLines.split(' ')[-1]]
-                    LastPathID = PathID
+                LastPathID = PathID
             elif LastPathID != '0':
                 dataLineList.append(dataLines)
-                if 'GameObject' in AssetType:
-                    if f'm_Name "{abBasename}" (string)'.lower() in dataLines.lower():
-                        BaseClassID = PathID
         with open(f'{cacheSavePath}/{PathID}.txt', 'w') as cacheFile:
             cacheFile.write(''.join(dataLineList))
-    if Mode == 'Texture2D':
-        returnValue = copy(resSPath, cacheSavePath)
-    elif Mode == 'TextAsset':
-        if BaseClassID == '0':
-            Reflect.AppendText('\nERROR: Not original file name or Invalid Unity web file.\n')
-            returnValue = -1
-        else:
-            returnValue = BaseClassID
+    returnValue = copy(resSPath, cacheSavePath) if Mode == 'Texture2D' else '0'
     rmtree(os.path.split(CABPath)[0])
     return returnValue
+class UselessReflector:
+    def AppendText(self, text):
+        return 0
+    def Clear(self):
+        return 0
 def ReleasePreview(imgObject):
         Blank = Image.new('RGBA', (864, 540), (0, 0, 0, 0))
         width = round(Decimal(imgObject.size[0] / imgObject.size[1] * 540))
@@ -224,7 +219,11 @@ class PaintingFrame(wx.Panel):
         self.LoadFileButton = wx.Button(Sub_TaskFile, label = '导入文件', pos = (16, 22))
         TaskTitle = wx.StaticText(Sub_TaskFile, label = '当前任务:', pos = (112, 30))
         self.TaskLabel = wx.StaticText(Sub_TaskFile, label = '空闲中', pos = (170, 30))
-        self.ProcessInfo = wx.TextCtrl(Sub_TaskFile, pos = (17, 66), size = (349, 170), style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+        self.FileNoteBook = wx.Notebook(Sub_TaskFile, pos = (13, 62), size = (357, 178))
+        self.ProcessInfo = wx.TextCtrl(self.FileNoteBook, style = wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_NO_VSCROLL)
+        self.DependenciesBox = wx.ListBox(self.FileNoteBook, style = wx.LB_SINGLE | wx.LB_HSCROLL | wx.LB_OWNERDRAW)
+        self.FileNoteBook.AddPage(self.ProcessInfo, '处理日志')
+        self.FileNoteBook.AddPage(self.DependenciesBox, '依赖项列表')
 
         self.Sub_Painting = wx.StaticBox(self, label = '立绘导入', pos = (16, 273), size = (384, 255))
         self.LoadPaintingButton = wx.Button(self.Sub_Painting, label = '添加立绘', pos = (16, 22))
@@ -259,6 +258,7 @@ class PaintingFrame(wx.Panel):
             return self.Painting(filePath)
     def Painting(self, ABPath):
         self.NameLabel.SetLabel('N/A')
+        self.DependenciesBox.Clear()
         self.NeedsNameBox.Clear()
         self.Sub_Painting.Disable()
         self.SaveButton.Disable()
@@ -269,136 +269,219 @@ class PaintingFrame(wx.Panel):
         self.PreviewImage = InitImgPre
         self.PreviewPanel.Refresh()
         RootPath = './cache/painting'
-        if os.path.exists(RootPath):
-            for cacheFolder in os.listdir(RootPath):
-                rmtree(f'{RootPath}/{cacheFolder}')
+        self.ABBasename = os.path.basename(ABPath)
+        self.MainPath = f'{RootPath}/Main'
+        self.DpdciesPath = f'{RootPath}/Dependencies'
         if not os.path.exists(RootPath): os.mkdir(RootPath)
-        self.cacheFilesPath = f'{RootPath}/{os.path.basename(ABPath)}'
+        if os.path.exists(self.MainPath):
+            for cacheFolder in os.listdir(self.MainPath):
+                rmtree(f'{self.MainPath}/{cacheFolder}')
+        else:
+            os.mkdir(self.MainPath)
+        if os.path.exists(self.DpdciesPath):
+            for cacheFolder in os.listdir(self.DpdciesPath):
+                rmtree(f'{self.DpdciesPath}/{cacheFolder}')
+        else:
+            os.mkdir(self.DpdciesPath)
+        self.cacheFilesPath = f'{self.MainPath}/{self.ABBasename}'
         os.mkdir(self.cacheFilesPath)
-        BaseClassID = ExtractAssetBundle(ABPath, self.cacheFilesPath, self.ProcessInfo, 'TextAsset')
-        if BaseClassID == -1:
+        Status = ExtractAssetBundle(ABPath, self.cacheFilesPath, self.ProcessInfo, 'TextAsset')
+        if Status == -1:
             return -1
-        self.ProcessInfo.AppendText('Building RectTransform Object...\n')
-        self.RectList = []
-        self.RectPathIDList = []
+        DpdciesRawList = []
+        DpdciesNameRawList = []
+        BaseDetect = False
+        BaseClassID = '0'
+        with open(f'{self.cacheFilesPath}/1.txt', 'r') as ABInfo:
+            InfoDataLines = ABInfo.readlines()
+            for dataLines in InfoDataLines:
+                if 'm_Container' in dataLines:
+                    BaseDetect = True
+                elif BaseDetect:
+                    if 'm_PathID' in dataLines:
+                        BaseDetect = False
+                        BaseClassID = dataLines.split(' ')[1]
+                elif 'm_Dependencies' in dataLines:
+                    Index = InfoDataLines.index(dataLines)
+                    DependDataSize = int(InfoDataLines[Index + 1].split(' ')[1])
+                    if DependDataSize == 0:
+                        continue
+                    DependInfo = InfoDataLines[Index + 2 : Index + DependDataSize + 2]
+                    for Depends in DependInfo:
+                        DependName = Depends.split('"')[1].split('/')[1]
+                        if '_tex' in DependName:
+                            DpdciesRawList.append(DependName)
+                            DpdciesNameRawList.append(DependName.split('_tex')[0])
+        if BaseClassID == '0':
+            self.ProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
+            return -1
+        RectList = []
+        RectPathIDList = []
         self.RectNameList = []
-        self.RectRawSizeList = []
-        self.RectStretchSizeList = []
-        self.RectLocalScaleList = []
-        self.ChildrenRectNameList = []
-        self.PastePointsList = []
-        self.CacheRectList = []
+        RectRawSizeList = []
+        RectStretchSizeList = []
+        RectLocalScaleList = []
+        ChildrenRectNameList = []
+        PastePointsList = []
+        CacheRectList = []
+        RectSpriteKeyList = []
         with open(f'{self.cacheFilesPath}/{BaseClassID}.txt', 'r') as BaseClass:
-            for BaseDataLines in BaseClass.readlines():
-                if 'm_PathID' in BaseDataLines:
-                    ChildPathID = BaseDataLines.split(' ')[1]
-                    with open(f'{self.cacheFilesPath}/{ChildPathID}.txt', 'r') as ChildClass:
-                        if 'RectTransform' in ChildClass.readlines()[0]:
-                            BaseRectPathID = ChildPathID
-                            break
+            BaseClassInfo = BaseClass.readlines()
+            if not 'GameObject' in BaseClassInfo[0]:
+                self.ProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
+                return -1
+            else:
+                for BaseDataLines in BaseClassInfo:
+                    if 'm_PathID' in BaseDataLines:
+                        ChildPathID = BaseDataLines.split(' ')[1]
+                        with open(f'{self.cacheFilesPath}/{ChildPathID}.txt', 'r') as ChildClass:
+                            if 'RectTransform' in ChildClass.readlines()[0]:
+                                BaseRectPathID = ChildPathID
+                                break
+        self.ProcessInfo.AppendText('Building RectTransform Object...\n')
         BaseRect = RectTransform(self.cacheFilesPath, BaseRectPathID)
         BaseRect.Continue()
         BaseRect.LocalScale = [Decimal('1'), Decimal('1'), Decimal('1')]
-        self.RectList.append(BaseRect)
-        self.RectPathIDList.append(BaseRect.PathID)
-        self.RectNameList.append(BaseRect.name)
+        RectList.append(BaseRect)
+        RectPathIDList.append(BaseRect.PathID)
+        self.RectNameList.append(f'{BaseRect.name}_0')
         for LayersPathID in BaseRect.ChildrenPathID:
             LayersRect = RectTransform(self.cacheFilesPath, LayersPathID)
             if LayersRect.name == 'layers':
                 LayersRect.Continue()
                 break
             elif LayersRect.name == 'paint':
-                self.CacheRectList.append(LayersRect)
+                CacheRectList.append(LayersRect)
         if LayersRect.name != 'layers':
-            if not self.CacheRectList:
+            if not CacheRectList:
                 self.ProcessInfo.AppendText('\nERROR: No needed or unable to analyze.')
                 return -1
             else:
-                LayersRect = self.CacheRectList[0]
+                LayersRect = CacheRectList[0]
                 LayersRect.Continue()
-        self.RectList.append(LayersRect)
-        self.RectPathIDList.append(LayersRect.PathID)
-        self.RectNameList.append(LayersRect.name)
+        self.DependenciesBox.SetItems(DpdciesRawList)
+        TexLostList = []
+        TexPathList = []
+        for i in range(0, len(DpdciesRawList)):
+            TexPath = f'{os.path.split(ABPath)[0]}/{DpdciesRawList[i]}'
+            if os.path.exists(TexPath):
+                TexPathList.append(TexPath)
+                self.DependenciesBox.SetItemForegroundColour(i, 'blue')
+            else:
+                TexLostList.append(DpdciesRawList[i])
+                self.DependenciesBox.SetItemForegroundColour(i, '#BB0011')
+        if TexLostList:
+            self.ProcessInfo.AppendText(f'\nDependenciesNotFound: {TexLostList}'.replace('[', '').replace(']', '').replace("'", ''))
+            self.FileNoteBook.SetSelection(1)
+            return -1
+        RectList.append(LayersRect)
+        RectPathIDList.append(LayersRect.PathID)
+        self.RectNameList.append(f'{LayersRect.name}_1')
+        RectIndex = 2
         for ChildrenPathID in LayersRect.ChildrenPathID:
             ChildrenRect = RectTransform(self.cacheFilesPath, ChildrenPathID)
             ChildrenRect.Continue()
-            self.RectList.append(ChildrenRect)
-            self.RectPathIDList.append(ChildrenRect.PathID)
-            self.RectNameList.append(ChildrenRect.name)
-            self.ChildrenRectNameList.append(ChildrenRect.name)
-        RectPathIDDict = dict(zip(self.RectPathIDList, self.RectList))
-        self.RectNameDict = dict(zip(self.RectNameList, self.RectList))
-        for RectObject in self.RectList:
+            RectList.append(ChildrenRect)
+            RectPathIDList.append(ChildrenRect.PathID)
+            ChildNameIndex = f'{ChildrenRect.name}_{str(RectIndex)}'
+            self.RectNameList.append(ChildNameIndex)
+            ChildrenRectNameList.append(ChildNameIndex)
+            RectIndex += 1
+        RectPathIDDict = dict(zip(RectPathIDList, RectList))
+        RectNameDict = dict(zip(self.RectNameList, RectList))
+        for RectObject in RectList:
             FatherRect = RectPathIDDict.get(RectObject.FatherPathID) if RectObject.FatherPathID != None else None
             RectObject.SetFatherRectObject(FatherRect)
             RectObject.CalculateRectSize()
             if RectObject.name != 'layers':
-                self.RectRawSizeList.append(RectObject.RawSize)
-                self.RectStretchSizeList.append(RectObject.Size)
-                self.RectLocalScaleList.append(RectObject.LocalScale)
-        self.ProcessInfo.AppendText('Calculating coordinates...\n')
+                RectRawSizeList.append(RectObject.RawSize)
+                RectStretchSizeList.append(RectObject.Size)
+                RectLocalScaleList.append(RectObject.LocalScale)
+                RectSpriteKeyList.append(RectObject.SpriteKey)
+            else:
+                self.RectNameList.remove('layers_1')
+        self.ProcessInfo.AppendText('Identifying dependencies...\n')
+        RectSpriteKeyDict = dict(zip(self.RectNameList, RectSpriteKeyList))
+        self.DpdciesNameList = []
+        TexSpriteKeyList = []
+        VoidReflector = UselessReflector()
+        for TexPath in TexPathList:
+            cacheTexPath = f'{self.DpdciesPath}/{os.path.split(TexPath)[1]}'
+            os.mkdir(cacheTexPath)
+            ExtractAssetBundle(TexPath, cacheTexPath, VoidReflector, 'TextAsset')
+            with open(f'{cacheTexPath}/1.txt', 'r') as TexAssetEnum:
+                TexInfo = TexAssetEnum.readlines()
+                for dataLines in TexInfo:
+                    if 'm_PathID' in dataLines:
+                        if 'data' in TexInfo[TexInfo.index(dataLines) - 2]:
+                            AssetPathID = dataLines.split(' ')[1]
+                            with open(f'{cacheTexPath}/{AssetPathID}.txt', 'r') as Asset:
+                                Component = Asset.readlines()
+                                if 'Sprite' in Component[0]:
+                                    TexSpriteKeyList.append(AssetPathID)
+                                    break
+        TexSpriteKeyDict = dict(zip(TexSpriteKeyList, DpdciesNameRawList))
+        for RectName in self.RectNameList:
+            self.DpdciesNameList.append(TexSpriteKeyDict.get(RectSpriteKeyDict.get(RectName)))
         if LayersRect.name == 'layers':
             LayersOrigin = [
                 Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] * LayersRect.LocalScale[0]),
                 Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] * LayersRect.LocalScale[1])
             ]
-            for ChildrenRectName in self.ChildrenRectNameList:
-                ChildrenRect = self.RectNameDict.get(ChildrenRectName)
+            for ChildrenRectName in ChildrenRectNameList:
+                ChildrenRect = RectNameDict.get(ChildrenRectName)
                 PastePoint = [
                     round(Decimal((ChildrenRect.AnchorMax[0] - ChildrenRect.AnchorMin[0]) * LayersRect.Size[0] * ChildrenRect.Pivot[0] + ChildrenRect.AnchorMin[0] * LayersRect.Size[0] + ChildrenRect.AnchoredPosition[0] + LayersOrigin[0] - ChildrenRect.Size[0] * ChildrenRect.Pivot[0] * ChildrenRect.LocalScale[0])) + 1,
                     round(Decimal((ChildrenRect.AnchorMax[1] - ChildrenRect.AnchorMin[1]) * LayersRect.Size[1] * ChildrenRect.Pivot[1] + ChildrenRect.AnchorMin[1] * LayersRect.Size[1] + ChildrenRect.AnchoredPosition[1] + LayersOrigin[1] - ChildrenRect.Size[1] * ChildrenRect.Pivot[1] * ChildrenRect.LocalScale[1])) + 1
                 ]
-                self.PastePointsList.append(PastePoint)
-            self.RectNameList.remove('layers')
+                PastePointsList.append(PastePoint)
         elif LayersRect.name == 'paint':
-            LayersRect.name = f'{BaseRect.name}_p'
-            self.RectNameList[self.RectNameList.index('paint')] = LayersRect.name
-            self.RectNameDict = dict(zip(self.RectNameList, self.RectList))
-            self.ChildrenRectNameList.append(LayersRect.name)
+            ChildrenRectNameList.append(LayersRect.name)
             PastePoint = [
                 round(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] * LayersRect.LocalScale[0])) + 1,
                 round(Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] * LayersRect.LocalScale[1])) + 1
             ]
-            self.PastePointsList.append(PastePoint)
+            PastePointsList.append(PastePoint)
         self.ExPixelList = [0, 0, 0, 0]
         PointX = []
         PointY = []
-        for point in self.PastePointsList:
+        for point in PastePointsList:
             PointX.append(point[0])
             PointY.append(point[1])
         self.ExPixelList[0] = abs(min(PointX)) if min(PointX) < 0 else 0
         self.ExPixelList[3] = abs(min(PointY)) if min(PointY) < 0 else 0
-        RectNameRawPointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
+        RectNameRawPointDict = dict(zip(ChildrenRectNameList, PastePointsList))
         PointX = []
         PointY = []
-        for ChildName in self.ChildrenRectNameList:
-            ChildRect = self.RectNameDict.get(ChildName)
+        for ChildName in ChildrenRectNameList:
+            ChildRect = RectNameDict.get(ChildName)
             point = RectNameRawPointDict.get(ChildName)
             PointX.append(round(ChildRect.Size[0] * ChildRect.LocalScale[0] + point[0] - BaseRect.Size[0]))
             PointY.append(round(ChildRect.Size[1] * ChildRect.LocalScale[1] + point[1] - BaseRect.Size[1]))
         self.ExPixelList[2] = max(PointX) if max(PointX) > 0 else 0
         self.ExPixelList[1] = max(PointY) if max(PointY) > 0 else 0
-        for point in self.PastePointsList:
-            index = self.PastePointsList.index(point)
+        for point in PastePointsList:
+            index = PastePointsList.index(point)
             point[0] += self.ExPixelList[0]
             point[1] += self.ExPixelList[3]
-            self.PastePointsList[index] = tuple(point)
-        self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
-        self.RectNamePointDict = dict(zip(self.ChildrenRectNameList, self.PastePointsList))
-        self.RectNameRawSizeDict = dict(zip(self.RectNameList, self.RectRawSizeList))
-        self.RectNameStretchSizeDict = dict(zip(self.RectNameList, self.RectStretchSizeList))
-        self.RectNameScaleDict = dict(zip(self.RectNameList, self.RectLocalScaleList))
+            PastePointsList[index] = tuple(point)
+        self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_group.png'
+        self.RectNamePointDict = dict(zip(ChildrenRectNameList, PastePointsList))
+        self.RectNameRawSizeDict = dict(zip(self.RectNameList, RectRawSizeList))
+        self.RectNameStretchSizeDict = dict(zip(self.RectNameList, RectStretchSizeList))
+        self.RectNameScaleDict = dict(zip(self.RectNameList, RectLocalScaleList))
         self.PaintingList = self.RectNameList[:]
         self.CheckList = [False for l in range(0, len(self.RectNameList))]
-        self.ProcessInfo.AppendText('\nDone! Please load painting.\n')
+        self.ProcessInfo.AppendText('\nDone! Please load painting.')
         return self.ActivePainting()
     def ActivePainting(self):
         self.Sub_Painting.Enable()
-        self.NeedsNameBox.SetItems(self.RectNameList)
+        self.NeedsNameBox.SetItems(self.DpdciesNameList)
         self.NeedsNameBox.SetSelection(0)
-        self.NeedsName = self.NeedsNameBox.GetStringSelection()
-        self.NameLabel.SetLabel(self.NeedsName)
-        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.NeedsName)
+        self.NeedsDpdName = self.NeedsNameBox.GetStringSelection()
+        self.NeedsName = self.RectNameList[self.NeedsNameBox.GetSelection()]
+        self.NameLabel.SetLabel(self.NeedsDpdName)
+        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.NeedsDpdName)
         return 0
     def LoadPainting(self, event):
         paintingDia = wx.FileDialog(self, message = '导入立绘', defaultDir = PaintingConfigs.paintingPath, wildcard = self.WildCard)
@@ -406,7 +489,7 @@ class PaintingFrame(wx.Panel):
             self.PreviewBook.SetSelection(0)
             PaintingPath = paintingDia.GetPath()
             Painting = Image.open(PaintingPath)
-            TargetIndex = self.RectNameList.index(self.NeedsName)
+            TargetIndex = self.NeedsNameBox.GetSelection()
             RawSizeData = self.RectNameRawSizeDict.get(self.NeedsName)
             RawSize = [RawSizeData[0] if RawSizeData[0] >= Painting.size[0] else Painting.size[0], RawSizeData[1] if RawSizeData[1] >= Painting.size[1] else Painting.size[1]]
             Extend = Image.new('RGBA', tuple(RawSize), (0, 0, 0, 0))
@@ -428,22 +511,23 @@ class PaintingFrame(wx.Panel):
             for k in range(1, self.PreviewBook.GetPageCount()):
                 if self.PreviewBook.GetPageText(k) == self.NeedsName:
                     self.PreviewBook.DeletePage(k)
-                    self.PreviewBook.InsertPage(k, PageImage, self.NeedsName)
+                    self.PreviewBook.InsertPage(k, PageImage, self.NeedsDpdName)
                     break
             else:
-                self.PreviewBook.AddPage(PageImage, self.NeedsName)
+                self.PreviewBook.AddPage(PageImage, self.NeedsDpdName)
             self.NeedsNameBox.SetItemForegroundColour(TargetIndex, 'blue')
             if self.NeedsName != self.RectNameList[-1]:
                 TargetIndex += 1
                 self.NeedsNameBox.SetSelection(TargetIndex)
                 self.ShowSelectedName(None)
             PaintingConfigs.Update(p2 = os.path.split(PaintingPath)[0])
-            self.FileName = f'{PaintingConfigs.paintingPath}\{self.RectNameList[0]}_group.png'
+            self.FileName = f'{PaintingConfigs.paintingPath}\{self.ABBasename}_group.png'
             return self.GroupPainting()
     def ShowSelectedName(self, event):
-        self.NeedsName = self.NeedsNameBox.GetStringSelection()
-        self.NameLabel.SetLabel(self.NeedsName)
-        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.NeedsName)
+        self.NeedsDpdName = self.NeedsNameBox.GetStringSelection()
+        self.NeedsName = self.RectNameList[self.NeedsNameBox.GetSelection()]
+        self.NameLabel.SetLabel(self.NeedsDpdName)
+        self.WildCard = f'Required Files ({PaintingConfigs.wildCard})|{PaintingConfigs.wildCard}|All Paintings (*.png)|*.png'.replace(r'{name}', self.NeedsDpdName)
         return 0
     def GroupPainting(self):
         RectNamePicDict = dict(zip(self.RectNameList, self.PaintingList))
@@ -594,19 +678,36 @@ class PaintingfaceFrame(wx.Panel):
         self.ABBasename = os.path.basename(ABPath)
         self.TextAssetPath = f'{RootPath}/TextAsset'
         self.Texture2DPath = f'{RootPath}/Texture2D'
+        if not os.path.exists(RootPath): os.mkdir(RootPath)
         if os.path.exists(self.TextAssetPath):
             for cacheFolder in os.listdir(self.TextAssetPath):
                 rmtree(f'{self.TextAssetPath}/{cacheFolder}')
+        else:
+            os.mkdir(self.TextAssetPath)
         if os.path.exists(self.Texture2DPath):
             for cacheFolder in os.listdir(self.Texture2DPath):
                 rmtree(f'{self.Texture2DPath}/{cacheFolder}')
-        if not os.path.exists(RootPath): os.mkdir(RootPath)
-        if not os.path.exists(self.TextAssetPath): os.mkdir(self.TextAssetPath)
-        if not os.path.exists(self.Texture2DPath): os.mkdir(self.Texture2DPath)
+        else:
+            os.mkdir(self.Texture2DPath)
         self.cacheTextAssetPath = f'{self.TextAssetPath}/{self.ABBasename}'
         os.mkdir(self.cacheTextAssetPath)
-        BaseClassID = ExtractAssetBundle(ABPath, self.cacheTextAssetPath, self.ProcessInfo, 'TextAsset')
-        if BaseClassID == -1:
+        Status = ExtractAssetBundle(ABPath, self.cacheTextAssetPath, self.ProcessInfo, 'TextAsset')
+        if Status == -1:
+            return -1
+        BaseDetect = False
+        BaseClassID = '0'
+        with open(f'{self.cacheTextAssetPath}/1.txt', 'r') as ABInfo:
+            InfoDataLines = ABInfo.readlines()
+            for datalines in InfoDataLines:
+                if 'm_Container' in datalines:
+                    BaseDetect = True
+                elif BaseDetect:
+                    if 'm_PathID' in datalines:
+                        BaseDetect = False
+                        BaseClassID = datalines.split(' ')[1]
+                        break
+        if BaseClassID == '0':
+            self.ProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
             return -1
         self.ProcessInfo.AppendText('Building RectTransform Object...\n')
         self.RectList = []
@@ -727,8 +828,8 @@ class PaintingfaceFrame(wx.Panel):
         os.mkdir(self.cacheTexture2DPath)
         resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'Texture2D')
         if resSFilePath == -1:
-            resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'TextAsset', '-1')
-            if resSFilePath != '-1':
+            resSFilePath = ExtractAssetBundle(ABPath, self.cacheTexture2DPath, self.FaceProcessInfo, 'TextAsset')
+            if resSFilePath == -1:
                 self.FaceProcessInfo.AppendText('\nERROR: Invalid paintingface AssetBundle.\n')
                 return -1
         self.FaceList = []
@@ -752,14 +853,16 @@ class PaintingfaceFrame(wx.Panel):
                                     if 'm_Name' in SpriteDataLines:
                                         self.FaceNameList.append(SpriteDataLines.split('"')[1])
                                     elif 'm_Rect' in SpriteDataLines:
-                                        TextureRectInfo = AssetComponent[AssetComponent.index(SpriteDataLines) + 1 : AssetComponent.index(SpriteDataLines) + 5]
+                                        RectIndex = AssetComponent.index(SpriteDataLines)
+                                        TextureRectInfo = AssetComponent[RectIndex + 1 : RectIndex + 5]
                                         for TexRectLines in TextureRectInfo:
                                             if 'width' in TexRectLines:
                                                 TexRectSize[0] = round(Decimal(TexRectLines.split(' ')[1]))
                                             elif 'height' in TexRectLines:
                                                 TexRectSize[1] = round(Decimal(TexRectLines.split(' ')[1]))
                                     elif 'texture  (PPtr<Texture2D>)' in SpriteDataLines:
-                                        TextureInfo = AssetComponent[AssetComponent.index(SpriteDataLines) + 1 : AssetComponent.index(SpriteDataLines) + 3]
+                                        TexIndex = AssetComponent.index(SpriteDataLines)
+                                        TextureInfo = AssetComponent[TexIndex + 1 : TexIndex + 3]
                                         for TexInfo in TextureInfo:
                                             if 'm_PathID' in TexInfo:
                                                 TexturePathID = TexInfo.split(' ')[1]
@@ -770,7 +873,8 @@ class PaintingfaceFrame(wx.Panel):
                                                             TexNameList.append(TexDataLines.split('"')[1])
                                                             break
                                     elif 'textureRect  (Rectf)' in SpriteDataLines:
-                                        SpriteRectInfo = AssetComponent[AssetComponent.index(SpriteDataLines) + 1 : AssetComponent.index(SpriteDataLines) + 5]
+                                        SpriteIndex = AssetComponent.index(SpriteDataLines)
+                                        SpriteRectInfo = AssetComponent[SpriteIndex + 1 : SpriteIndex + 5]
                                         for SpriteRectLines in SpriteRectInfo:
                                             if 'x' in SpriteRectLines:
                                                 TexRectOffset[0] = round(Decimal(SpriteRectLines.split(' ')[1]))
@@ -778,13 +882,16 @@ class PaintingfaceFrame(wx.Panel):
                                                 TexRectOffset[1] = round(Decimal(SpriteRectLines.split(' ')[1]))
                                 SpriteOffsetList.append(tuple(TexRectOffset))
                                 SpriteSizeList.append(tuple(TexRectSize))
+        if not self.FaceNameList:
+            self.FaceProcessInfo.AppendText('\nERROR: Invalid paintingface file.\n')
+            return -1
         FaceNamePathIDDict = dict(zip(self.FaceNameList, TexturePathIDList))
         SpriteNameOffsetDict = dict(zip(self.FaceNameList, SpriteOffsetList))
         SpriteNameSizeDict = dict(zip(self.FaceNameList, SpriteSizeList))
         try:
             SortList = [int(m) for m in self.FaceNameList]
         except ValueError:
-            self.FaceProcessInfo.AppendText('\nERROR: Invalid Unity web file.\n')
+            self.FaceProcessInfo.AppendText('\nERROR: Invalid paintingface file.\n')
             return -1
         TexturePathIDSet = set(TexturePathIDList)
         IsCutting = True if len(TexturePathIDSet) != len(self.FaceNameList) else False
@@ -792,7 +899,7 @@ class PaintingfaceFrame(wx.Panel):
         self.FaceNameList = [str(n) for n in SortList]
         self.FaceProcessInfo.AppendText('Building Paintingface images...\n')
         if not IsCutting:
-            if resSFilePath != '-1':
+            if resSFilePath != '0':
                 with open(resSFilePath, 'rb') as resSData:
                     for FaceName in self.FaceNameList:
                         FaceImage = self.Texture2DFromResS(FaceNamePathIDDict.get(FaceName), resSData)
@@ -802,7 +909,7 @@ class PaintingfaceFrame(wx.Panel):
                     FaceImage = self.Texture2DFromString(FaceNamePathIDDict.get(FaceName))
                     self.FaceList.append(FaceImage)
         else:
-            if resSFilePath != '-1':
+            if resSFilePath != '0':
                 with open(resSFilePath, 'rb') as resSData:
                     TextureList = []
                     for TexPathID in TexturePathIDSet:
@@ -835,7 +942,8 @@ class PaintingfaceFrame(wx.Panel):
                 elif 'm_Height' in dataLines:
                     FaceSize[1] = int(dataLines.split(' ')[1])
                 elif 'm_StreamData' in dataLines:
-                    StreamDataList = TextureDataList[TextureDataList.index(dataLines) + 1 : TextureDataList.index(dataLines) + 3]
+                    StreamIndex = TextureDataList.index(dataLines)
+                    StreamDataList = TextureDataList[StreamIndex + 1 : StreamIndex + 3]
                     for StreamData in StreamDataList:
                         if 'offset' in StreamData:
                             StreamOffset = int(StreamData.split(' ')[1])
