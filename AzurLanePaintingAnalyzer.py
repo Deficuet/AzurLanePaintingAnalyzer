@@ -436,7 +436,7 @@ class PaintingFrame(wx.Panel):
                 ]
                 PastePointsList.append(PastePoint)
         elif LayersRect.name == 'paint':
-            ChildrenRectNameList.append(LayersRect.name)
+            ChildrenRectNameList.append(f'{LayersRect.name}_1')
             PastePoint = [
                 round(Decimal((LayersRect.AnchorMax[0] - LayersRect.AnchorMin[0]) * BaseRect.Size[0] * LayersRect.Pivot[0] + LayersRect.AnchorMin[0] * BaseRect.Size[0] + LayersRect.AnchoredPosition[0] - LayersRect.Size[0] * LayersRect.Pivot[0] * LayersRect.LocalScale[0])) + 1,
                 round(Decimal((LayersRect.AnchorMax[1] - LayersRect.AnchorMin[1]) * BaseRect.Size[1] * LayersRect.Pivot[1] + LayersRect.AnchorMin[1] * BaseRect.Size[1] + LayersRect.AnchoredPosition[1] - LayersRect.Size[1] * LayersRect.Pivot[1] * LayersRect.LocalScale[1])) + 1
