@@ -1,4 +1,6 @@
 # AzurLanePaintingAnalyzer
+# 已停止维护，请移步 [AzurLanePaintingAnalysis-Kt](https://github.com/Deficuet/AzurLanePaintingAnalysis-Kt)
+
 WebExtract.exe 和 binary2text.exe 取自 Unity64 - 2020.1.6f1
 
 立绘合并（并不是把立绘碎片拼在一起的功能）：
